@@ -187,7 +187,7 @@ def make_signals(candles):
 def run_backtest(candles):
     signals, atr_values = make_signals(candles)
     position = None
-    pending_side = 0
+    pending_side = None  # None means no scheduled action; 0 means scheduled exit.
     pending_atr = None
     trades = []
     equity = 1.0
@@ -239,24 +239,25 @@ def run_backtest(candles):
         exited_this_candle = False
 
         # Apply the decision made at the previous candle close at this candle's open.
-        if pending_side != (position["side"] if position else 0):
-            if position is not None:
-                close_position(candle["open"], candle["timestamp"], "signal_change")
-                exited_this_candle = True
-            if pending_side != 0 and pending_atr is not None and pending_atr > 0:
-                distance = STOP_ATR_MULTIPLIER * pending_atr
-                entry = candle["open"]
-                position = {
-                    "side": pending_side,
-                    "entry_price": entry,
-                    "entry_timestamp": candle["timestamp"],
-                    "stop_price": entry - distance if pending_side == 1 else entry + distance,
-                    "target_price": entry + TAKE_PROFIT_ATR_MULTIPLIER * pending_atr
-                    if pending_side == 1 else entry - TAKE_PROFIT_ATR_MULTIPLIER * pending_atr,
-                    "bars_held": 0,
-                }
+        if pending_side is not None:
+            if pending_side != (position["side"] if position else 0):
+                if position is not None:
+                    close_position(candle["open"], candle["timestamp"], "signal_change")
+                    exited_this_candle = True
+                if pending_side != 0 and pending_atr is not None and pending_atr > 0:
+                    distance = STOP_ATR_MULTIPLIER * pending_atr
+                    entry = candle["open"]
+                    position = {
+                        "side": pending_side,
+                        "entry_price": entry,
+                        "entry_timestamp": candle["timestamp"],
+                        "stop_price": entry - distance if pending_side == 1 else entry + distance,
+                        "target_price": entry + TAKE_PROFIT_ATR_MULTIPLIER * pending_atr
+                        if pending_side == 1 else entry - TAKE_PROFIT_ATR_MULTIPLIER * pending_atr,
+                        "bars_held": 0,
+                    }
 
-        pending_side = 0
+        pending_side = None
         pending_atr = None
 
         # Evaluate stops and targets using this candle's range. If both are touched,
