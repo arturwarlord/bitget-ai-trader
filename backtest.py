@@ -333,8 +333,35 @@ def run_backtest(candles):
     wins = sum(1 for trade in trades if trade["net_return_pct"] > 0)
     gross_sum = sum(trade["gross_return_pct"] for trade in trades)
     net_sum = sum(trade["net_return_pct"] for trade in trades)
-    gross_wins = sum(t["net_return_pct"] for t in trades if t["net_return_pct"] > 0)
-    gross_losses = -sum(t["net_return_pct"] for t in trades if t["net_return_pct"] < 0)
+    net_wins_sum = sum(t["net_return_pct"] for t in trades if t["net_return_pct"] > 0)
+    net_losses_sum = -sum(t["net_return_pct"] for t in trades if t["net_return_pct"] < 0)
+
+    def summarize_trades(subset, cost_pct=ROUND_TRIP_COST_PCT):
+        adjusted = [t["gross_return_pct"] - cost_pct for t in subset]
+        positive = sum(value for value in adjusted if value > 0)
+        negative = -sum(value for value in adjusted if value < 0)
+        capital = 1.0
+        for value in adjusted:
+            capital *= max(0.0, 1 + value / 100)
+        return {
+            "trades": len(subset),
+            "win_rate_pct": round(sum(value > 0 for value in adjusted) / len(adjusted) * 100, 2) if adjusted else 0.0,
+            "profit_factor": round(positive / negative, 4) if negative else None,
+            "compounded_return_pct": round((capital - 1) * 100, 4),
+        }
+
+    cost_sensitivity = []
+    for scenario_cost in (0.08, 0.12, 0.16, 0.20, 0.24):
+        cost_sensitivity.append({
+            "round_trip_cost_pct": scenario_cost,
+            **summarize_trades(trades, scenario_cost),
+        })
+
+    by_side = {
+        "LONG": summarize_trades([t for t in trades if t["side"] == "LONG"]),
+        "SHORT": summarize_trades([t for t in trades if t["side"] == "SHORT"]),
+    }
+
     first_close = candles[warmup]["close"]
     last_close = candles[-1]["close"]
     buy_hold_gross = (last_close / first_close - 1) * 100
@@ -371,7 +398,9 @@ def run_backtest(candles):
         "winning_trades": wins,
         "losing_trades": len(trades) - wins,
         "win_rate_pct": round(wins / len(trades) * 100, 2) if trades else 0.0,
-        "profit_factor": round(gross_wins / gross_losses, 4) if gross_losses else None,
+        "profit_factor": round(net_wins_sum / net_losses_sum, 4) if net_losses_sum else None,
+        "performance_by_side": by_side,
+        "cost_sensitivity": cost_sensitivity,
         "average_net_trade_return_pct": round(net_sum / len(trades), 4) if trades else 0.0,
         "gross_sum_of_trade_returns_pct": round(gross_sum, 4),
         "net_sum_of_trade_returns_pct": round(net_sum, 4),
