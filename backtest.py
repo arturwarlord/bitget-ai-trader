@@ -570,6 +570,30 @@ def main():
 
     print("\n===== BITGET HISTORICAL BACKTEST (READ-ONLY) =====")
     print(json.dumps(report, indent=2, ensure_ascii=False))
+
+    # Compact summary makes it easy to compare both timeframes without copying
+    # the entire verbose report from GitHub Actions logs.
+    summary = {
+        "history_days_requested": HISTORY_DAYS,
+        "history_start_utc": report["first_candle_utc"],
+        "history_end_utc": report["last_candle_utc"],
+        "estimated_round_trip_cost_pct": ROUND_TRIP_COST_PCT,
+        "timeframes": {
+            "5m": {
+                "candles": report["candles_tested"],
+                "trades": report["trades"],
+                "win_rate_pct": report["win_rate_pct"],
+                "profit_factor": report["profit_factor"],
+                "compounded_unleveraged_return_pct": report["compounded_unleveraged_return_pct"],
+                "max_drawdown_pct": report["max_drawdown_pct"],
+                "validation": report.get("validation"),
+            },
+            "15m": report["timeframe_comparison"]["15m"],
+        },
+        "trading_enabled": False,
+    }
+    print("\\n===== COMPACT SUMMARY: COPY THIS BLOCK =====")
+    print(json.dumps(summary, indent=2, ensure_ascii=False))
     print("\nSafety: this script only reads public market data. It does not place orders.")
 
 
