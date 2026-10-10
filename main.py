@@ -9,6 +9,7 @@ SYMBOL = "BTCUSDT"
 PRODUCT_TYPE = "USDT-FUTURES"
 TIMEFRAME = "5m"
 CANDLE_LIMIT = 100
+TIMEFRAME_MS = 5 * 60 * 1000
 
 
 def get_candles():
@@ -87,16 +88,28 @@ def rsi(values, period=14):
 
 def analyze():
     candles = get_candles()
+    now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+
+    # Only analyze fully closed 5-minute candles; the newest API candle may still be forming.
+    candles = [
+        candle for candle in candles
+        if candle["timestamp"] + TIMEFRAME_MS <= now_ms
+    ]
+    if len(candles) < 30:
+        raise RuntimeError(
+            f"Not enough fully closed candles for analysis: received {len(candles)}"
+        )
+
     closes = [candle["close"] for candle in candles]
     last = candles[-1]
 
-    now = datetime.now(timezone.utc).timestamp()
-    candle_age_seconds = now - (last["timestamp"] / 1000)
-    if candle_age_seconds < -300 or candle_age_seconds > 900:
+    candle_close_ms = last["timestamp"] + TIMEFRAME_MS
+    candle_age_seconds = (now_ms - candle_close_ms) / 1000
+    if candle_age_seconds < 0 or candle_age_seconds > 600:
         age_minutes = round(candle_age_seconds / 60, 1)
         raise RuntimeError(
-            f"Latest 5m candle is stale or has a future timestamp "
-            f"(age: {age_minutes} minutes). Refusing to produce a trading signal."
+            f"Latest fully closed 5m candle is stale "
+            f"(minutes since close: {age_minutes}). Refusing to produce a trading signal."
         )
 
     ema_9 = ema(closes, 9)
