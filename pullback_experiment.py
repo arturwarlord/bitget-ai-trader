@@ -178,7 +178,17 @@ def summarize_regime_trades(trades):
     return report
 
 
-def simulate(candles, signals, atr_values, trend_values, slow_values, volatility_values, volatility_cutoffs, stop_mult, target_r, evaluation_start, direction="both"):
+def trend_regime_at(index, atr_values, trend_values, slow_values):
+    atr_value = atr_values[index]
+    trend_value = trend_values[index]
+    slow_value = slow_values[index]
+    if atr_value is None or atr_value <= 0 or trend_value is None or slow_value is None:
+        return None
+    gap = abs(trend_value - slow_value) / atr_value
+    return "weak" if gap < 1.0 else ("moderate" if gap < 2.0 else "strong")
+
+
+def simulate(candles, signals, atr_values, trend_values, slow_values, volatility_values, volatility_cutoffs, stop_mult, target_r, evaluation_start, direction="both", allowed_trend_regimes=None):
     start = max(evaluation_start, EMA_SLOW + 2)
     position = None
     pending = None
@@ -206,8 +216,7 @@ def simulate(candles, signals, atr_values, trend_values, slow_values, volatility
                 entry = c["open"]
                 risk = stop_mult * signal_atr
                 reward = target_r * risk
-                trend_gap_atr = abs(trend_values[signal_index] - slow_values[signal_index]) / signal_atr if trend_values[signal_index] is not None and slow_values[signal_index] is not None else None
-                trend_regime = "weak" if trend_gap_atr is not None and trend_gap_atr < 1.0 else ("moderate" if trend_gap_atr is not None and trend_gap_atr < 2.0 else ("strong" if trend_gap_atr is not None else None))
+                trend_regime = trend_regime_at(signal_index, atr_values, trend_values, slow_values)
                 vol = volatility_values[signal_index]
                 volatility_regime = "low" if vol is not None and volatility_cutoffs[0] is not None and vol <= volatility_cutoffs[0] else ("medium" if vol is not None and volatility_cutoffs[1] is not None and vol <= volatility_cutoffs[1] else ("high" if vol is not None else None))
                 position = {"side": side, "entry_price": entry, "entry_timestamp": c["timestamp"],
@@ -243,7 +252,9 @@ def simulate(candles, signals, atr_values, trend_values, slow_values, volatility
             max_dd = max(max_dd, (peak - marked) / peak * 100)
         signal = signals[i]
         direction_allowed = direction == "both" or (direction == "long_only" and signal == 1) or (direction == "short_only" and signal == -1)
-        if position is None and signal in (-1, 1) and direction_allowed and atr_values[i] is not None:
+        signal_regime = trend_regime_at(i, atr_values, trend_values, slow_values)
+        regime_allowed = allowed_trend_regimes is None or signal_regime in allowed_trend_regimes
+        if position is None and signal in (-1, 1) and direction_allowed and regime_allowed and atr_values[i] is not None:
             pending = (signal, atr_values[i], i)
     if position is not None:
         close_position(candles[-1]["close"], candles[-1]["timestamp"], "end_of_test")
@@ -283,6 +294,16 @@ def main():
                 results.append({"direction": direction, "stop_atr_multiplier": stop_mult, "target_r_multiple": target_r,
                                 "full_period_diagnostic": full,
                                 "out_of_sample_holdout": {"split_candle_utc": datetime.fromtimestamp(candles[split]["timestamp"] / 1000, timezone.utc).isoformat(), **oos}})
+    # Pre-specified diagnostic comparison: SHORT-only baseline vs excluding moderate trend.
+    # This filter is exploratory because the prior report suggested regime differences;
+    # it must be validated on new forward data before any use.
+    regime_filter_comparison = {}
+    for label, allowed in (("baseline_all_regimes", None), ("exclude_moderate_trend", {"weak", "strong"})):
+        regime_filter_comparison[label] = {
+            "allowed_trend_regimes": sorted(allowed) if allowed is not None else "all",
+            "development": simulate(candles, signals, atr, trend, slow, volatility, volatility_cutoffs, 1.5, 1.5, 0, "short_only", allowed),
+            "out_of_sample_holdout": simulate(candles, signals, atr, trend, slow, volatility, volatility_cutoffs, 1.5, 1.5, split, "short_only", allowed),
+        }
     report = {"checked_at_utc": datetime.now(timezone.utc).isoformat(), "exchange": "Bitget",
               "market": "USDT Futures", "symbol": SYMBOL, "timeframe": TIMEFRAME,
               "strategy": "15m trend pullback: EMA20 recross, EMA50/EMA200 alignment, recent RSI pullback, ATR stop/target; both/long-only/short-only comparison",
@@ -299,6 +320,7 @@ def main():
                              "entry": "signal on closed candle; entry at next candle open",
                              "position_sizing": "unleveraged; no leverage applied"},
               "results": results,
+              "regime_filter_comparison": regime_filter_comparison,
               "warnings": ["Read-only historical experiment; no orders are placed.",
                            "Fees and slippage are illustrative estimates; funding is excluded.",
                            "Stop is assumed first when stop and target are both touched in one candle.",
