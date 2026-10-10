@@ -144,7 +144,7 @@ def build_signals(candles):
     return signals, atr
 
 
-def simulate(candles, signals, atr_values, stop_mult, target_r, evaluation_start):
+def simulate(candles, signals, atr_values, stop_mult, target_r, evaluation_start, direction="both"):
     start = max(evaluation_start, EMA_SLOW + 2)
     position = None
     pending = None
@@ -200,8 +200,10 @@ def simulate(candles, signals, atr_values, stop_mult, target_r, evaluation_start
         peak = max(peak, marked)
         if peak > 0:
             max_dd = max(max_dd, (peak - marked) / peak * 100)
-        if position is None and signals[i] in (-1, 1) and atr_values[i] is not None:
-            pending = (signals[i], atr_values[i])
+        signal = signals[i]
+        direction_allowed = direction == "both" or (direction == "long_only" and signal == 1) or (direction == "short_only" and signal == -1)
+        if position is None and signal in (-1, 1) and direction_allowed and atr_values[i] is not None:
+            pending = (signal, atr_values[i])
     if position is not None:
         close_position(candles[-1]["close"], candles[-1]["timestamp"], "end_of_test")
     returns = [t["net_return_pct"] for t in trades]
@@ -225,16 +227,17 @@ def main():
     signals, atr = build_signals(candles)
     split = int(len(candles) * 0.70)
     results = []
-    for stop_mult in STOP_ATR_MULTIPLIERS:
-        for target_r in TARGET_R_MULTIPLIERS:
-            full = simulate(candles, signals, atr, stop_mult, target_r, 0)
-            oos = simulate(candles, signals, atr, stop_mult, target_r, split)
-            results.append({"stop_atr_multiplier": stop_mult, "target_r_multiple": target_r,
-                            "full_period_diagnostic": full,
-                            "out_of_sample_holdout": {"split_candle_utc": datetime.fromtimestamp(candles[split]["timestamp"] / 1000, timezone.utc).isoformat(), **oos}})
+    for direction in ("both", "long_only", "short_only"):
+        for stop_mult in STOP_ATR_MULTIPLIERS:
+            for target_r in TARGET_R_MULTIPLIERS:
+                full = simulate(candles, signals, atr, stop_mult, target_r, 0, direction)
+                oos = simulate(candles, signals, atr, stop_mult, target_r, split, direction)
+                results.append({"direction": direction, "stop_atr_multiplier": stop_mult, "target_r_multiple": target_r,
+                                "full_period_diagnostic": full,
+                                "out_of_sample_holdout": {"split_candle_utc": datetime.fromtimestamp(candles[split]["timestamp"] / 1000, timezone.utc).isoformat(), **oos}})
     report = {"checked_at_utc": datetime.now(timezone.utc).isoformat(), "exchange": "Bitget",
               "market": "USDT Futures", "symbol": SYMBOL, "timeframe": TIMEFRAME,
-              "strategy": "15m trend pullback: EMA20 recross, EMA50/EMA200 alignment, RSI filter, ATR stop/target",
+              "strategy": "15m trend pullback: EMA20 recross, EMA50/EMA200 alignment, recent RSI pullback, ATR stop/target; both/long-only/short-only comparison",
               "history_days_requested": HISTORY_DAYS, "candles_collected": len(candles),
               "estimated_round_trip_cost_pct": ROUND_TRIP_COST_PCT,
               "parameters": {"ema_fast": EMA_FAST, "ema_trend": EMA_TREND, "ema_slow": EMA_SLOW,
