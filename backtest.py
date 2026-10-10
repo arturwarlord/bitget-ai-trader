@@ -362,6 +362,40 @@ def run_backtest(candles):
         "SHORT": summarize_trades([t for t in trades if t["side"] == "SHORT"]),
     }
 
+    # Diagnostic breakdown: identify whether losses come primarily from stops,
+    # signal reversals, time exits, or other close conditions.
+    exit_reason_breakdown = {}
+    for reason in sorted({t["exit_reason"] for t in trades}):
+        subset = [t for t in trades if t["exit_reason"] == reason]
+        gross_wins = sum(t["gross_return_pct"] for t in subset if t["gross_return_pct"] > 0)
+        gross_losses = -sum(t["gross_return_pct"] for t in subset if t["gross_return_pct"] < 0)
+        exit_reason_breakdown[reason] = {
+            "trades": len(subset),
+            "win_rate_net_pct": round(
+                sum(t["net_return_pct"] > 0 for t in subset) / len(subset) * 100, 2
+            ) if subset else 0.0,
+            "gross_profit_sum_pct_points": round(gross_wins, 4),
+            "gross_loss_sum_pct_points": round(gross_losses, 4),
+            "gross_net_sum_pct_points": round(
+                sum(t["gross_return_pct"] for t in subset), 4
+            ),
+            "net_sum_pct_points": round(
+                sum(t["net_return_pct"] for t in subset), 4
+            ),
+            "average_gross_trade_return_pct": round(
+                sum(t["gross_return_pct"] for t in subset) / len(subset), 4
+            ) if subset else 0.0,
+            "average_bars_held": round(
+                sum(t["bars_held"] for t in subset) / len(subset), 2
+            ) if subset else 0.0,
+        }
+
+    gross_winning_trades_sum = sum(t["gross_return_pct"] for t in trades if t["gross_return_pct"] > 0)
+    gross_losing_trades_sum = -sum(t["gross_return_pct"] for t in trades if t["gross_return_pct"] < 0)
+    average_bars_held = (
+        sum(t["bars_held"] for t in trades) / len(trades) if trades else 0.0
+    )
+
     first_close = candles[warmup]["close"]
     last_close = candles[-1]["close"]
     buy_hold_gross = (last_close / first_close - 1) * 100
@@ -401,6 +435,11 @@ def run_backtest(candles):
         "profit_factor": round(net_wins_sum / net_losses_sum, 4) if net_losses_sum else None,
         "performance_by_side": by_side,
         "cost_sensitivity": cost_sensitivity,
+        "exit_reason_breakdown": exit_reason_breakdown,
+        "gross_winning_trades_sum_pct_points": round(gross_winning_trades_sum, 4),
+        "gross_losing_trades_sum_pct_points": round(gross_losing_trades_sum, 4),
+        "average_bars_held": round(average_bars_held, 2),
+        "average_holding_minutes": round(average_bars_held * 5, 2),
         "average_net_trade_return_pct": round(net_sum / len(trades), 4) if trades else 0.0,
         "gross_sum_of_trade_returns_pct": round(gross_sum, 4),
         "net_sum_of_trade_returns_pct": round(net_sum, 4),
