@@ -1,0 +1,36 @@
+name: Bitget Historical Backtest
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bitget-historical-backtest
+  cancel-in-progress: false
+
+jobs:
+  backtest:
+    name: Backtest BTCUSDT strategy
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run read-only historical backtest
+        run: python backtest.py
+
+      - name: Save backtest report
+        uses: actions/upload-artifact@v4
+        with:
+          name: bitget-backtest-report
+          path: backtest-report.json
+          if-no-files-found: error
+          retention-days: 14
