@@ -131,9 +131,15 @@ def build_signals(candles):
         # Trend-following pullback: trend alignment plus price crossing back through EMA20.
         crossed_up = closes[i] > fast[i] and closes[i - 1] <= fast[i - 1]
         crossed_down = closes[i] < fast[i] and closes[i - 1] >= fast[i - 1]
-        if trend[i] > slow[i] and closes[i] > slow[i] and crossed_up and rsi[i] <= RSI_LONG_MAX:
+        # RSI confirms a recent pullback, while EMA20 recross confirms recovery.
+        # Check the current candle and previous 4 closed candles rather than requiring
+        # RSI to remain oversold/overbought on the exact recross candle.
+        recent_rsi = [value for value in rsi[max(EMA_SLOW + 1, i - 4):i + 1] if value is not None]
+        had_long_pullback = any(value <= RSI_LONG_MAX for value in recent_rsi)
+        had_short_pullback = any(value >= RSI_SHORT_MIN for value in recent_rsi)
+        if trend[i] > slow[i] and closes[i] > slow[i] and crossed_up and had_long_pullback:
             signals[i] = 1
-        elif trend[i] < slow[i] and closes[i] < slow[i] and crossed_down and rsi[i] >= RSI_SHORT_MIN:
+        elif trend[i] < slow[i] and closes[i] < slow[i] and crossed_down and had_short_pullback:
             signals[i] = -1
     return signals, atr
 
