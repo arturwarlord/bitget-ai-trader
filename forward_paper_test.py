@@ -128,7 +128,7 @@ def main():
                     "stop": entry + risk,
                     "target": entry - TARGET_R * risk,
                     "bars_held": 0,
-                    "trend_regime": exp.trend_regime_at(signal_index, atr, trend, slow),
+                    "trend_regime": pending.get("trend_regime"),
                 }
             state["pending"] = None
 
@@ -152,7 +152,7 @@ def main():
         signal = signals[i]
         regime = exp.trend_regime_at(i, atr, trend, slow)
         if state["position"] is None and state["pending"] is None and signal == -1 and regime in ALLOWED_REGIMES and atr[i] is not None and atr[i] > 0:
-            state["pending"] = {"atr": atr[i], "signal_index": i}
+            state["pending"] = {"atr": atr[i], "trend_regime": regime}
         state["last_processed_timestamp"] = c["timestamp"]
         processed += 1
 
