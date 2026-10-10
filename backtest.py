@@ -18,6 +18,15 @@ TAKER_FEE_PER_SIDE = 0.0006
 SLIPPAGE_PER_SIDE = 0.0002
 ROUND_TRIP_COST_PCT = 2 * (TAKER_FEE_PER_SIDE + SLIPPAGE_PER_SIDE) * 100
 
+EMA_FAST = 9
+EMA_SLOW = 21
+EMA_TREND = 200
+RSI_PERIOD = 14
+ATR_PERIOD = 14
+STOP_ATR_MULTIPLIER = 1.5
+TAKE_PROFIT_ATR_MULTIPLIER = 2.0
+MAX_HOLD_CANDLES = 48  # 4 hours on a 5-minute chart
+
 
 def request_candles(end_time_ms=None):
     params = {
@@ -32,7 +41,7 @@ def request_candles(end_time_ms=None):
     url = f"{BASE_URL}/api/v2/mix/market/candles?{urllib.parse.urlencode(params)}"
     request = urllib.request.Request(
         url,
-        headers={"User-Agent": "bitget-ai-trader-backtest/0.2", "Accept": "application/json"},
+        headers={"User-Agent": "bitget-ai-trader-backtest/0.3", "Accept": "application/json"},
     )
     with urllib.request.urlopen(request, timeout=30) as response:
         payload = json.loads(response.read().decode("utf-8"))
@@ -60,8 +69,7 @@ def get_candles():
     all_candles = {}
     end_time_ms = now_ms
 
-    # Page backwards to collect a longer historical sample than a single 1,000-candle response.
-    for page in range(MAX_PAGES):
+    for _ in range(MAX_PAGES):
         batch = request_candles(end_time_ms=end_time_ms)
         if not batch:
             break
@@ -79,7 +87,7 @@ def get_candles():
         time.sleep(0.2)
 
     candles = [all_candles[key] for key in sorted(all_candles)]
-    if len(candles) < 500:
+    if len(candles) < 1000:
         raise RuntimeError(
             f"Only {len(candles)} closed candles collected; expected a larger sample. "
             "Check Bitget API pagination or try again later."
@@ -87,96 +95,227 @@ def get_candles():
     return candles
 
 
-def ema(values, period):
+def ema_series(values, period):
+    result = [None] * len(values)
+    if len(values) < period:
+        return result
+
+    current = sum(values[:period]) / period
+    result[period - 1] = current
     alpha = 2 / (period + 1)
-    result = sum(values[:period]) / period
-    for value in values[period:]:
-        result = value * alpha + result * (1 - alpha)
+    for i in range(period, len(values)):
+        current = values[i] * alpha + current * (1 - alpha)
+        result[i] = current
     return result
 
 
-def rsi(values, period=14):
-    changes = [values[i] - values[i - 1] for i in range(1, len(values))]
-    gains = [max(change, 0.0) for change in changes]
-    losses = [max(-change, 0.0) for change in changes]
-    avg_gain = sum(gains[:period]) / period
-    avg_loss = sum(losses[:period]) / period
-    for i in range(period, len(changes)):
-        avg_gain = (avg_gain * (period - 1) + gains[i]) / period
-        avg_loss = (avg_loss * (period - 1) + losses[i]) / period
-    if avg_loss == 0:
-        return 100.0 if avg_gain > 0 else 50.0
-    return 100 - 100 / (1 + avg_gain / avg_loss)
+def rsi_series(closes, period=14):
+    result = [None] * len(closes)
+    if len(closes) <= period:
+        return result
+
+    gains = []
+    losses = []
+    for i in range(1, period + 1):
+        change = closes[i] - closes[i - 1]
+        gains.append(max(change, 0.0))
+        losses.append(max(-change, 0.0))
+
+    avg_gain = sum(gains) / period
+    avg_loss = sum(losses) / period
+
+    def calculate_rsi(gain, loss):
+        if loss == 0:
+            return 100.0 if gain > 0 else 50.0
+        return 100 - 100 / (1 + gain / loss)
+
+    result[period] = calculate_rsi(avg_gain, avg_loss)
+    for i in range(period + 1, len(closes)):
+        change = closes[i] - closes[i - 1]
+        gain = max(change, 0.0)
+        loss = max(-change, 0.0)
+        avg_gain = (avg_gain * (period - 1) + gain) / period
+        avg_loss = (avg_loss * (period - 1) + loss) / period
+        result[i] = calculate_rsi(avg_gain, avg_loss)
+    return result
 
 
-def signal_for(closes):
-    if len(closes) < 30:
-        return 0
-    fast = ema(closes, 9)
-    slow = ema(closes, 21)
-    strength = rsi(closes, 14)
-    if fast > slow and 50 <= strength < 70:
-        return 1
-    if fast < slow and 30 < strength <= 50:
-        return -1
-    return 0
+def atr_series(candles, period=14):
+    result = [None] * len(candles)
+    if len(candles) <= period:
+        return result
+
+    true_ranges = [None] * len(candles)
+    for i in range(1, len(candles)):
+        true_ranges[i] = max(
+            candles[i]["high"] - candles[i]["low"],
+            abs(candles[i]["high"] - candles[i - 1]["close"]),
+            abs(candles[i]["low"] - candles[i - 1]["close"]),
+        )
+
+    current = sum(true_ranges[1:period + 1]) / period
+    result[period] = current
+    for i in range(period + 1, len(candles)):
+        current = (current * (period - 1) + true_ranges[i]) / period
+        result[i] = current
+    return result
+
+
+def make_signals(candles):
+    closes = [c["close"] for c in candles]
+    fast = ema_series(closes, EMA_FAST)
+    slow = ema_series(closes, EMA_SLOW)
+    trend = ema_series(closes, EMA_TREND)
+    strength = rsi_series(closes, RSI_PERIOD)
+    atr = atr_series(candles, ATR_PERIOD)
+
+    signals = [0] * len(candles)
+    for i in range(len(candles)):
+        if any(series[i] is None for series in (fast, slow, trend, strength, atr)):
+            continue
+
+        # Trend filter: only trade in the direction of EMA 200.
+        # RSI bands avoid entering when momentum is already extremely stretched.
+        if fast[i] > slow[i] and closes[i] > trend[i] and 52 <= strength[i] < 68:
+            signals[i] = 1
+        elif fast[i] < slow[i] and closes[i] < trend[i] and 32 < strength[i] <= 48:
+            signals[i] = -1
+
+    return signals, atr
 
 
 def run_backtest(candles):
-    closes = [c["close"] for c in candles]
-    position = 0
-    entry_price = None
+    signals, atr_values = make_signals(candles)
+    position = None
+    pending_side = 0
+    pending_atr = None
     trades = []
     equity = 1.0
     equity_peak = 1.0
     max_drawdown_pct = 0.0
+    total_cost_pct_points = 0.0
 
-    def close_position(exit_price, exit_timestamp):
-        nonlocal equity, equity_peak, max_drawdown_pct
-        market_return_pct = position * (exit_price / entry_price - 1) * 100
-        net_return_pct = market_return_pct - ROUND_TRIP_COST_PCT
-        trades.append({
-            "side": "LONG" if position == 1 else "SHORT",
-            "entry_price": round(entry_price, 2),
-            "exit_price": round(exit_price, 2),
-            "exit_candle_utc": datetime.fromtimestamp(
-                exit_timestamp / 1000, timezone.utc
-            ).isoformat(),
-            "gross_return_pct": round(market_return_pct, 4),
-            "estimated_cost_pct": round(ROUND_TRIP_COST_PCT, 4),
-            "net_return_pct": round(net_return_pct, 4),
-            "result": "WIN" if net_return_pct > 0 else "LOSS",
-        })
-        # Unleveraged, fully compounded illustrative equity curve.
-        equity *= max(0.0, 1 + net_return_pct / 100)
+    def update_drawdown():
+        nonlocal equity_peak, max_drawdown_pct
         equity_peak = max(equity_peak, equity)
         if equity_peak > 0:
             drawdown = (equity_peak - equity) / equity_peak * 100
             max_drawdown_pct = max(max_drawdown_pct, drawdown)
 
-    # A signal after candle i closes is executed at candle i+1 open.
-    for i in range(29, len(candles) - 1):
-        desired = signal_for(closes[:i + 1])
-        next_candle = candles[i + 1]
-        execution_price = next_candle["open"]
+    def close_position(exit_price, exit_timestamp, exit_reason):
+        nonlocal position, equity, total_cost_pct_points
+        if position is None:
+            return
 
-        if desired == position:
-            continue
+        side = position["side"]
+        gross_pct = side * (exit_price / position["entry_price"] - 1) * 100
+        net_pct = gross_pct - ROUND_TRIP_COST_PCT
+        # Unleveraged, fully compounded model: position notional equals current equity.
+        equity *= max(0.0, 1 + net_pct / 100)
+        total_cost_pct_points += ROUND_TRIP_COST_PCT
+        trades.append({
+            "side": "LONG" if side == 1 else "SHORT",
+            "entry_price": round(position["entry_price"], 2),
+            "exit_price": round(exit_price, 2),
+            "entry_candle_utc": datetime.fromtimestamp(
+                position["entry_timestamp"] / 1000, timezone.utc
+            ).isoformat(),
+            "exit_candle_utc": datetime.fromtimestamp(
+                exit_timestamp / 1000, timezone.utc
+            ).isoformat(),
+            "bars_held": position["bars_held"],
+            "gross_return_pct": round(gross_pct, 4),
+            "estimated_cost_pct": round(ROUND_TRIP_COST_PCT, 4),
+            "net_return_pct": round(net_pct, 4),
+            "exit_reason": exit_reason,
+            "result": "WIN" if net_pct > 0 else "LOSS",
+        })
+        position = None
+        update_drawdown()
 
-        if position != 0 and entry_price is not None:
-            close_position(execution_price, next_candle["timestamp"])
+    warmup = EMA_TREND + 2
+    for i in range(warmup, len(candles)):
+        candle = candles[i]
+        exited_this_candle = False
 
-        position = desired
-        entry_price = execution_price if desired != 0 else None
+        # Apply the decision made at the previous candle close at this candle's open.
+        if pending_side != (position["side"] if position else 0):
+            if position is not None:
+                close_position(candle["open"], candle["timestamp"], "signal_change")
+                exited_this_candle = True
+            if pending_side != 0 and pending_atr is not None and pending_atr > 0:
+                distance = STOP_ATR_MULTIPLIER * pending_atr
+                entry = candle["open"]
+                position = {
+                    "side": pending_side,
+                    "entry_price": entry,
+                    "entry_timestamp": candle["timestamp"],
+                    "stop_price": entry - distance if pending_side == 1 else entry + distance,
+                    "target_price": entry + TAKE_PROFIT_ATR_MULTIPLIER * pending_atr
+                    if pending_side == 1 else entry - TAKE_PROFIT_ATR_MULTIPLIER * pending_atr,
+                    "bars_held": 0,
+                }
 
-    if position != 0 and entry_price is not None:
-        close_position(candles[-1]["close"], candles[-1]["timestamp"])
-        position = 0
-        entry_price = None
+        pending_side = 0
+        pending_atr = None
+
+        # Evaluate stops and targets using this candle's range. If both are touched,
+        # assume the stop was hit first (conservative; OHLC data cannot show the path).
+        if position is not None:
+            position["bars_held"] += 1
+            side = position["side"]
+            stop = position["stop_price"]
+            target = position["target_price"]
+            exit_price = None
+            exit_reason = None
+
+            if side == 1:
+                if candle["open"] <= stop:
+                    exit_price, exit_reason = candle["open"], "stop_gap"
+                elif candle["open"] >= target:
+                    exit_price, exit_reason = candle["open"], "take_profit_gap"
+                elif candle["low"] <= stop:
+                    exit_price, exit_reason = stop, "stop_loss"
+                elif candle["high"] >= target:
+                    exit_price, exit_reason = target, "take_profit"
+            else:
+                if candle["open"] >= stop:
+                    exit_price, exit_reason = candle["open"], "stop_gap"
+                elif candle["open"] <= target:
+                    exit_price, exit_reason = candle["open"], "take_profit_gap"
+                elif candle["high"] >= stop:
+                    exit_price, exit_reason = stop, "stop_loss"
+                elif candle["low"] <= target:
+                    exit_price, exit_reason = target, "take_profit"
+
+            if exit_price is not None:
+                close_position(exit_price, candle["timestamp"], exit_reason)
+                exited_this_candle = True
+            elif position is not None and position["bars_held"] >= MAX_HOLD_CANDLES:
+                close_position(candle["close"], candle["timestamp"], "max_holding_time")
+                exited_this_candle = True
+
+        # Only create a new pending order from this candle's closed data.
+        # After a stop/target/time exit, wait for a fresh candle before re-entry.
+        if not exited_this_candle:
+            desired = signals[i]
+            current_side = position["side"] if position else 0
+            if desired != current_side:
+                pending_side = desired
+                pending_atr = atr_values[i]
+
+    if position is not None:
+        close_position(candles[-1]["close"], candles[-1]["timestamp"], "end_of_test")
 
     wins = sum(1 for trade in trades if trade["net_return_pct"] > 0)
     gross_sum = sum(trade["gross_return_pct"] for trade in trades)
     net_sum = sum(trade["net_return_pct"] for trade in trades)
+    gross_wins = sum(t["net_return_pct"] for t in trades if t["net_return_pct"] > 0)
+    gross_losses = -sum(t["net_return_pct"] for t in trades if t["net_return_pct"] < 0)
+    first_close = candles[warmup]["close"]
+    last_close = candles[-1]["close"]
+    buy_hold_gross = (last_close / first_close - 1) * 100
+    buy_hold_net = buy_hold_gross - ROUND_TRIP_COST_PCT
 
     return {
         "checked_at_utc": datetime.now(timezone.utc).isoformat(),
@@ -184,7 +323,7 @@ def run_backtest(candles):
         "market": "USDT Futures",
         "symbol": SYMBOL,
         "timeframe": TIMEFRAME,
-        "strategy": "EMA 9/21 + RSI 14; long and short; enter at next candle open",
+        "strategy": "EMA 9/21 + EMA 200 trend filter + RSI 14 + ATR stop/target",
         "history_days_requested": HISTORY_DAYS,
         "candles_tested": len(candles),
         "first_candle_utc": datetime.fromtimestamp(candles[0]["timestamp"] / 1000, timezone.utc).isoformat(),
@@ -192,20 +331,39 @@ def run_backtest(candles):
         "estimated_taker_fee_per_side_pct": round(TAKER_FEE_PER_SIDE * 100, 4),
         "estimated_slippage_per_side_pct": round(SLIPPAGE_PER_SIDE * 100, 4),
         "estimated_round_trip_cost_pct": round(ROUND_TRIP_COST_PCT, 4),
+        "strategy_parameters": {
+            "ema_fast": EMA_FAST,
+            "ema_slow": EMA_SLOW,
+            "ema_trend_filter": EMA_TREND,
+            "rsi_period": RSI_PERIOD,
+            "long_rsi_range": "52 <= RSI < 68",
+            "short_rsi_range": "32 < RSI <= 48",
+            "stop_loss_atr_multiplier": STOP_ATR_MULTIPLIER,
+            "take_profit_atr_multiplier": TAKE_PROFIT_ATR_MULTIPLIER,
+            "max_holding_candles": MAX_HOLD_CANDLES,
+            "max_holding_minutes": MAX_HOLD_CANDLES * 5,
+            "position_sizing": "unleveraged; notional equals current equity",
+        },
         "trades": len(trades),
         "winning_trades": wins,
         "losing_trades": len(trades) - wins,
         "win_rate_pct": round(wins / len(trades) * 100, 2) if trades else 0.0,
+        "profit_factor": round(gross_wins / gross_losses, 4) if gross_losses else None,
+        "average_net_trade_return_pct": round(net_sum / len(trades), 4) if trades else 0.0,
         "gross_sum_of_trade_returns_pct": round(gross_sum, 4),
         "net_sum_of_trade_returns_pct": round(net_sum, 4),
+        "estimated_cost_sum_pct_points": round(total_cost_pct_points, 4),
         "compounded_unleveraged_return_pct": round((equity - 1) * 100, 4),
         "max_drawdown_pct": round(max_drawdown_pct, 4),
+        "buy_and_hold_gross_return_pct": round(buy_hold_gross, 4),
+        "buy_and_hold_after_one_round_trip_cost_pct": round(buy_hold_net, 4),
         "recent_trades": trades[-10:],
         "trading_enabled": False,
         "warning": (
-            "Historical simulation only. Fee and slippage values are estimates, funding is excluded, "
-            "and the model assumes unleveraged exposure with next-candle-open execution. "
-            "Results do not predict future performance."
+            "Historical simulation only. Fee and slippage values are estimates; funding is excluded. "
+            "OHLC candles cannot reveal intrabar price order, so if stop and target are both touched "
+            "the stop is assumed first. Entries are at the next candle open. Results do not predict "
+            "future performance and require out-of-sample validation."
         ),
     }
 
