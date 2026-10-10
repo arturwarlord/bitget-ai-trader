@@ -1,0 +1,16 @@
+{
+  "created_at_utc": "2026-10-10T16:02:48.428367+00:00",
+  "last_processed_timestamp": 1791647100000,
+  "position": null,
+  "pending": null,
+  "trades": [],
+  "equity": 1.0,
+  "strategy": "SHORT-only EMA20 pullback, EMA50<EMA200, recent RSI>=58, weak/strong trend only",
+  "stop_atr_multiplier": 1.5,
+  "target_r_multiple": 1.5,
+  "allowed_trend_regimes": [
+    "strong",
+    "weak"
+  ],
+  "estimated_round_trip_cost_pct": 0.15999999999999998
+}
