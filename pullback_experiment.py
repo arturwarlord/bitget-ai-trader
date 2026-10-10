@@ -141,10 +141,44 @@ def build_signals(candles):
             signals[i] = 1
         elif trend[i] < slow[i] and closes[i] < slow[i] and crossed_down and had_short_pullback:
             signals[i] = -1
-    return signals, atr
+    return signals, atr, trend, slow
 
 
-def simulate(candles, signals, atr_values, stop_mult, target_r, evaluation_start, direction="both"):
+def percentile(values, fraction):
+    clean = sorted(v for v in values if v is not None)
+    if not clean:
+        return None
+    index = (len(clean) - 1) * fraction
+    lower = int(index)
+    upper = min(lower + 1, len(clean) - 1)
+    weight = index - lower
+    return clean[lower] * (1 - weight) + clean[upper] * weight
+
+
+def summarize_regime_trades(trades):
+    def stats(items):
+        returns = [t["net_return_pct"] for t in items]
+        profits = sum(v for v in returns if v > 0)
+        losses = -sum(v for v in returns if v < 0)
+        capital = 1.0
+        for value in returns:
+            capital *= max(0.0, 1 + value / 100)
+        return {
+            "trades": len(items),
+            "win_rate_pct": round(sum(v > 0 for v in returns) / len(returns) * 100, 2) if returns else 0,
+            "profit_factor": round(profits / losses, 4) if losses else (None if not profits else "infinite"),
+            "compounded_unleveraged_return_pct": round((capital - 1) * 100, 4),
+            "average_net_return_pct": round(sum(returns) / len(returns), 4) if returns else 0,
+        }
+
+    report = {"by_side": {}, "by_trend_strength": {}, "by_volatility": {}}
+    for key, group_key in (("by_side", "side"), ("by_trend_strength", "trend_regime"), ("by_volatility", "volatility_regime")):
+        for group in sorted({t[group_key] for t in trades if t.get(group_key) is not None}):
+            report[key][group] = stats([t for t in trades if t.get(group_key) == group])
+    return report
+
+
+def simulate(candles, signals, atr_values, trend_values, slow_values, volatility_values, volatility_cutoffs, stop_mult, target_r, evaluation_start, direction="both"):
     start = max(evaluation_start, EMA_SLOW + 2)
     position = None
     pending = None
@@ -159,20 +193,27 @@ def simulate(candles, signals, atr_values, stop_mult, target_r, evaluation_start
         net = gross - ROUND_TRIP_COST_PCT
         equity *= max(0.0, 1 + net / 100)
         trades.append({"side": "LONG" if side == 1 else "SHORT", "net_return_pct": net,
-                       "exit_reason": reason, "bars_held": position["bars_held"]})
+                       "exit_reason": reason, "bars_held": position["bars_held"],
+                       "trend_regime": position.get("trend_regime"),
+                       "volatility_regime": position.get("volatility_regime")})
         position = None
 
     for i in range(start, len(candles)):
         c = candles[i]
         if pending is not None:
-            side, signal_atr = pending
+            side, signal_atr, signal_index = pending
             if position is None and signal_atr is not None and signal_atr > 0:
                 entry = c["open"]
                 risk = stop_mult * signal_atr
                 reward = target_r * risk
+                trend_gap_atr = abs(trend_values[signal_index] - slow_values[signal_index]) / signal_atr if trend_values[signal_index] is not None and slow_values[signal_index] is not None else None
+                trend_regime = "weak" if trend_gap_atr is not None and trend_gap_atr < 1.0 else ("moderate" if trend_gap_atr is not None and trend_gap_atr < 2.0 else ("strong" if trend_gap_atr is not None else None))
+                vol = volatility_values[signal_index]
+                volatility_regime = "low" if vol is not None and volatility_cutoffs[0] is not None and vol <= volatility_cutoffs[0] else ("medium" if vol is not None and volatility_cutoffs[1] is not None and vol <= volatility_cutoffs[1] else ("high" if vol is not None else None))
                 position = {"side": side, "entry_price": entry, "entry_timestamp": c["timestamp"],
                             "stop": entry - risk if side == 1 else entry + risk,
-                            "target": entry + reward if side == 1 else entry - reward, "bars_held": 0}
+                            "target": entry + reward if side == 1 else entry - reward, "bars_held": 0,
+                            "trend_regime": trend_regime, "volatility_regime": volatility_regime}
             pending = None
         if position is not None:
             position["bars_held"] += 1
@@ -203,7 +244,7 @@ def simulate(candles, signals, atr_values, stop_mult, target_r, evaluation_start
         signal = signals[i]
         direction_allowed = direction == "both" or (direction == "long_only" and signal == 1) or (direction == "short_only" and signal == -1)
         if position is None and signal in (-1, 1) and direction_allowed and atr_values[i] is not None:
-            pending = (signal, atr_values[i])
+            pending = (signal, atr_values[i], i)
     if position is not None:
         close_position(candles[-1]["close"], candles[-1]["timestamp"], "end_of_test")
     returns = [t["net_return_pct"] for t in trades]
@@ -219,19 +260,26 @@ def simulate(candles, signals, atr_values, stop_mult, target_r, evaluation_start
             "compounded_unleveraged_return_pct": round((capital - 1) * 100, 4),
             "max_drawdown_pct": round(max_dd, 4),
             "long_trades": sum(t["side"] == "LONG" for t in trades),
-            "short_trades": sum(t["side"] == "SHORT" for t in trades)}
+            "short_trades": sum(t["side"] == "SHORT" for t in trades),
+            "regime_breakdown": summarize_regime_trades(trades)}
 
 
 def main():
     candles = get_candles()
-    signals, atr = build_signals(candles)
+    signals, atr, trend, slow = build_signals(candles)
+    volatility = [((atr[i] / candles[i]["close"]) * 100) if atr[i] is not None and candles[i]["close"] else None for i in range(len(candles))]
     split = int(len(candles) * 0.70)
+    development_volatility = [volatility[i] for i in range(split)]
+    volatility_cutoffs = (percentile(development_volatility, 1 / 3), percentile(development_volatility, 2 / 3))
     results = []
     for direction in ("both", "long_only", "short_only"):
         for stop_mult in STOP_ATR_MULTIPLIERS:
             for target_r in TARGET_R_MULTIPLIERS:
-                full = simulate(candles, signals, atr, stop_mult, target_r, 0, direction)
-                oos = simulate(candles, signals, atr, stop_mult, target_r, split, direction)
+                full = simulate(candles, signals, atr, trend, slow, volatility, volatility_cutoffs, stop_mult, target_r, 0, direction)
+                oos = simulate(candles, signals, atr, trend, slow, volatility, volatility_cutoffs, stop_mult, target_r, split, direction)
+                if direction != "short_only" or stop_mult != 1.5 or target_r != 1.5:
+                    full.pop("regime_breakdown", None)
+                    oos.pop("regime_breakdown", None)
                 results.append({"direction": direction, "stop_atr_multiplier": stop_mult, "target_r_multiple": target_r,
                                 "full_period_diagnostic": full,
                                 "out_of_sample_holdout": {"split_candle_utc": datetime.fromtimestamp(candles[split]["timestamp"] / 1000, timezone.utc).isoformat(), **oos}})
@@ -240,6 +288,10 @@ def main():
               "strategy": "15m trend pullback: EMA20 recross, EMA50/EMA200 alignment, recent RSI pullback, ATR stop/target; both/long-only/short-only comparison",
               "history_days_requested": HISTORY_DAYS, "candles_collected": len(candles),
               "estimated_round_trip_cost_pct": ROUND_TRIP_COST_PCT,
+              "regime_analysis": {"baseline": "SHORT-only, stop 1.5x ATR, target 1.5R",
+                                  "trend_strength_buckets": "EMA50-EMA200 distance divided by ATR: weak <1, moderate 1-2, strong >=2",
+                                  "volatility_buckets": "ATR/close percentage split into thirds using development-period thresholds only",
+                                  "development_volatility_tercile_cutoffs_pct": [round(x, 6) if x is not None else None for x in volatility_cutoffs]},
               "parameters": {"ema_fast": EMA_FAST, "ema_trend": EMA_TREND, "ema_slow": EMA_SLOW,
                              "rsi_period": RSI_PERIOD, "rsi_long_max": RSI_LONG_MAX, "rsi_short_min": RSI_SHORT_MIN,
                              "atr_period": ATR_PERIOD, "stop_atr_multipliers": STOP_ATR_MULTIPLIERS,
