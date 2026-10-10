@@ -103,7 +103,7 @@ def main():
     holdout_results = []
     for item in selected:
         apply_config(item["config"])
-        result = bt.run_backtest(holdout, timeframe_minutes=5)
+        result = bt.run_backtest(candles, timeframe_minutes=5, evaluation_start_index=split)
         holdout_results.append({
             "config": item["config"],
             "development": item["development"],
@@ -113,7 +113,7 @@ def main():
     # Add the baseline's holdout result even if it did not rank in the top group.
     if not any(item["config"] == baseline for item in holdout_results):
         apply_config(baseline)
-        result = bt.run_backtest(holdout, timeframe_minutes=5)
+        result = bt.run_backtest(candles, timeframe_minutes=5, evaluation_start_index=split)
         baseline_dev = next(
             item["development"] for item in development_results
             if item["config"] == baseline
@@ -145,7 +145,7 @@ def main():
         "selection_method": (
             "Predefined grid ranked on the first 70% by profit factor, then compounded "
             "return, then lower drawdown. The final 30% is held out and is not used "
-            "to rank candidates. Indicators are recalculated within each slice."
+            "to rank candidates. Development indicators warm up within the development slice. Holdout indicators use prior history for warmup, but simulated trades begin only at the holdout boundary."
         ),
         "baseline_config": baseline,
         "top_development_candidates": development_results[:10],
@@ -155,7 +155,8 @@ def main():
             "Research-only parameter comparison, not a recommendation to trade. "
             "Selecting candidates can still overfit the development period; a positive "
             "single holdout is not proof of robustness. Fees/slippage are estimates, "
-            "funding is excluded, and intrabar order is unknown from OHLC candles."
+            "funding is excluded, and intrabar order is unknown from OHLC candles. "
+            "Holdout trades are evaluated only after the split while indicators may use prior candles for warmup."
         ),
     }
 
