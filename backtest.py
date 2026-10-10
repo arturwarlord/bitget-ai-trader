@@ -169,17 +169,26 @@ def make_signals(candles):
     strength = rsi_series(closes, RSI_PERIOD)
     atr = atr_series(candles, ATR_PERIOD)
 
-    signals = [0] * len(candles)
-    for i in range(len(candles)):
-        if any(series[i] is None for series in (fast, slow, trend, strength, atr)):
+    # None means "no new signal". Only EMA crossovers can open/reverse a trade;
+    # this avoids exiting simply because RSI drifts outside its entry band.
+    signals = [None] * len(candles)
+    for i in range(1, len(candles)):
+        if any(series[i] is None or series[i - 1] is None for series in (fast, slow, trend, strength, atr)):
             continue
 
-        # Trend filter: only trade in the direction of EMA 200.
-        # RSI bands avoid entering when momentum is already extremely stretched.
-        if fast[i] > slow[i] and closes[i] > trend[i] and 52 <= strength[i] < 68:
-            signals[i] = 1
-        elif fast[i] < slow[i] and closes[i] < trend[i] and 32 < strength[i] <= 48:
-            signals[i] = -1
+        bullish_cross = fast[i - 1] <= slow[i - 1] and fast[i] > slow[i]
+        bearish_cross = fast[i - 1] >= slow[i - 1] and fast[i] < slow[i]
+
+        if bullish_cross:
+            # On a bullish crossover, close an existing short even if entry filters fail.
+            signals[i] = 0
+            if closes[i] > trend[i] and 52 <= strength[i] < 68:
+                signals[i] = 1
+        elif bearish_cross:
+            # On a bearish crossover, close an existing long even if entry filters fail.
+            signals[i] = 0
+            if closes[i] < trend[i] and 32 < strength[i] <= 48:
+                signals[i] = -1
 
     return signals, atr
 
@@ -296,9 +305,9 @@ def run_backtest(candles):
                 close_position(candle["close"], candle["timestamp"], "max_holding_time")
                 exited_this_candle = True
 
-        # Only create a new pending order from this candle's closed data.
-        # After a stop/target/time exit, wait for a fresh candle before re-entry.
-        if not exited_this_candle:
+        # Signals are events, not a required state: None means keep current position.
+        # A crossover schedules entry/exit for the next candle open.
+        if not exited_this_candle and signals[i] is not None:
             desired = signals[i]
             current_side = position["side"] if position else 0
             if desired != current_side:
@@ -324,7 +333,7 @@ def run_backtest(candles):
         "market": "USDT Futures",
         "symbol": SYMBOL,
         "timeframe": TIMEFRAME,
-        "strategy": "EMA 9/21 + EMA 200 trend filter + RSI 14 + ATR stop/target",
+        "strategy": "EMA 9/21 crossover events + EMA 200 trend filter + RSI entry confirmation + ATR stop/target",
         "history_days_requested": HISTORY_DAYS,
         "candles_tested": len(candles),
         "first_candle_utc": datetime.fromtimestamp(candles[0]["timestamp"] / 1000, timezone.utc).isoformat(),
