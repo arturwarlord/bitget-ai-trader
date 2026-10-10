@@ -193,7 +193,7 @@ def make_signals(candles):
     return signals, atr
 
 
-def run_backtest(candles, timeframe_minutes=5):
+def run_backtest(candles, timeframe_minutes=5, evaluation_start_index=0):
     signals, atr_values = make_signals(candles)
     position = None
     pending_side = None  # None means no scheduled action; 0 means scheduled exit.
@@ -246,8 +246,10 @@ def run_backtest(candles, timeframe_minutes=5):
         update_drawdown()
 
     warmup = EMA_TREND + 2
+    evaluation_start_index = max(0, min(int(evaluation_start_index), len(candles) - 1))
+    simulation_start = max(warmup, evaluation_start_index)
     max_hold_candles_for_run = max(1, round(MAX_HOLD_CANDLES * 5 / timeframe_minutes))
-    for i in range(warmup, len(candles)):
+    for i in range(simulation_start, len(candles)):
         candle = candles[i]
         exited_this_candle = False
 
@@ -351,6 +353,21 @@ def run_backtest(candles, timeframe_minutes=5):
             "compounded_return_pct": round((capital - 1) * 100, 4),
         }
 
+    monthly_performance = {}
+    for trade in trades:
+        month = datetime.fromisoformat(trade["exit_candle_utc"]).strftime("%Y-%m")
+        monthly_performance.setdefault(month, []).append(trade)
+    monthly_summary = {}
+    for month, month_trades in sorted(monthly_performance.items()):
+        month_metrics = summarize_trades(month_trades)
+        month_metrics["net_sum_pct_points"] = round(
+            sum(t["net_return_pct"] for t in month_trades), 4
+        )
+        month_metrics["average_net_trade_return_pct"] = round(
+            sum(t["net_return_pct"] for t in month_trades) / len(month_trades), 4
+        ) if month_trades else 0.0
+        monthly_summary[month] = month_metrics
+
     cost_sensitivity = []
     for scenario_cost in (0.08, 0.12, 0.16, 0.20, 0.24):
         cost_sensitivity.append({
@@ -397,7 +414,7 @@ def run_backtest(candles, timeframe_minutes=5):
         sum(t["bars_held"] for t in trades) / len(trades) if trades else 0.0
     )
 
-    first_close = candles[warmup]["close"]
+    first_close = candles[simulation_start]["close"]
     last_close = candles[-1]["close"]
     buy_hold_gross = (last_close / first_close - 1) * 100
     buy_hold_net = buy_hold_gross - ROUND_TRIP_COST_PCT
@@ -410,8 +427,10 @@ def run_backtest(candles, timeframe_minutes=5):
         "timeframe": TIMEFRAME if timeframe_minutes == 5 else f"{timeframe_minutes}m",
         "strategy": "EMA 9/21 crossover events + EMA 200 trend filter + RSI entry confirmation + ATR stop/target",
         "history_days_requested": HISTORY_DAYS,
-        "candles_tested": len(candles),
-        "first_candle_utc": datetime.fromtimestamp(candles[0]["timestamp"] / 1000, timezone.utc).isoformat(),
+        "candles_tested": len(candles) - simulation_start,
+        "indicator_warmup_candles": simulation_start,
+        "evaluation_start_index": simulation_start,
+        "first_candle_utc": datetime.fromtimestamp(candles[simulation_start]["timestamp"] / 1000, timezone.utc).isoformat(),
         "last_candle_utc": datetime.fromtimestamp(candles[-1]["timestamp"] / 1000, timezone.utc).isoformat(),
         "estimated_taker_fee_per_side_pct": round(TAKER_FEE_PER_SIDE * 100, 4),
         "estimated_slippage_per_side_pct": round(SLIPPAGE_PER_SIDE * 100, 4),
@@ -435,6 +454,7 @@ def run_backtest(candles, timeframe_minutes=5):
         "win_rate_pct": round(wins / len(trades) * 100, 2) if trades else 0.0,
         "profit_factor": round(net_wins_sum / net_losses_sum, 4) if net_losses_sum else None,
         "performance_by_side": by_side,
+        "monthly_performance_by_exit_month": monthly_summary,
         "cost_sensitivity": cost_sensitivity,
         "exit_reason_breakdown": exit_reason_breakdown,
         "gross_winning_trades_sum_pct_points": round(gross_winning_trades_sum, 4),
@@ -532,16 +552,20 @@ def main():
             "15m candles are aggregated from complete aligned groups of three 5m candles. "
             "EMA/RSI/ATR periods remain the same number of bars, so their time horizons differ. "
             "The max holding horizon is kept at four hours. Same estimated round-trip cost is "
-            "applied per trade; actual execution costs can differ by timeframe and venue conditions."
+            "applied per trade; actual execution costs can differ by timeframe and venue conditions. "
+            "The 70/30 holdout uses approximately the same calendar cutoff for both timeframes; "
+            "holdout indicators are warmed up with prior candles, but trades are only simulated after the cutoff."
         ),
     }
 
     # Chronological holdout for both timeframes: the final 30% is evaluated
     # separately, with indicator warmup recalculated on each holdout slice.
-    def add_validation(target_report, target_candles, timeframe_minutes):
-        split = int(len(target_candles) * 0.70)
-        holdout = target_candles[split:]
-        held_report = run_backtest(holdout, timeframe_minutes=timeframe_minutes)
+    def add_validation(target_report, target_candles, timeframe_minutes, split_override=None):
+        split = int(len(target_candles) * 0.70) if split_override is None else split_override
+        held_report = run_backtest(
+            target_candles, timeframe_minutes=timeframe_minutes,
+            evaluation_start_index=split,
+        )
         target_report["validation"] = {
             "method": "chronological 70/30 split; final 30% held out",
             "development_period_end_utc": datetime.fromtimestamp(
@@ -549,19 +573,26 @@ def main():
             ).isoformat(),
             "out_of_sample_start_utc": held_report["first_candle_utc"],
             "out_of_sample_end_utc": held_report["last_candle_utc"],
-            "out_of_sample_candles_including_indicator_warmup": held_report["candles_tested"],
+            "out_of_sample_candles_evaluated": held_report["candles_tested"],
+            "indicator_warmup_candles_from_prior_history": held_report["indicator_warmup_candles"],
+            "out_of_sample_monthly_performance": held_report["monthly_performance_by_exit_month"],
             "out_of_sample_trades": held_report["trades"],
             "out_of_sample_win_rate_pct": held_report["win_rate_pct"],
             "out_of_sample_profit_factor": held_report["profit_factor"],
             "out_of_sample_compounded_unleveraged_return_pct": held_report["compounded_unleveraged_return_pct"],
             "out_of_sample_max_drawdown_pct": held_report["max_drawdown_pct"],
             "out_of_sample_buy_and_hold_gross_return_pct": held_report["buy_and_hold_gross_return_pct"],
-            "note": "Preliminary 30-day holdout only; not proof of robustness. Indicators are recalculated on the holdout slice."
+            "note": "Preliminary chronological holdout only; indicators use prior historical candles for warmup, while trades are evaluated only after the split. Not proof of robustness."
         }
         return held_report
 
-    add_validation(report, candles, timeframe_minutes=5)
-    add_validation(report_15m, candles_15m, timeframe_minutes=15)
+    common_split_timestamp = candles[int(len(candles) * 0.70)]["timestamp"]
+    split_15m = next(
+        (i for i, candle in enumerate(candles_15m) if candle["timestamp"] >= common_split_timestamp),
+        int(len(candles_15m) * 0.70),
+    )
+    add_validation(report, candles, timeframe_minutes=5, split_override=int(len(candles) * 0.70))
+    add_validation(report_15m, candles_15m, timeframe_minutes=15, split_override=split_15m)
     report["timeframe_comparison"]["5m"] = compact_comparison(report)
     report["timeframe_comparison"]["15m"] = compact_comparison(report_15m)
 
