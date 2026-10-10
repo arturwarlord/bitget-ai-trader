@@ -1,0 +1,50 @@
+name: Bitget Forward Paper Validation
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 * * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bitget-forward-paper-validation
+  cancel-in-progress: false
+
+jobs:
+  forward-paper-test:
+    name: Track new BTCUSDT 15m candles without placing orders
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Initialize or update forward paper test
+        run: python forward_paper_test.py
+
+      - name: Persist forward-test state
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/forward_paper_state.json
+          if git diff --cached --quiet; then
+            echo "No state changes to commit."
+          else
+            git commit -m "Update forward paper test state"
+            git push
+          fi
+
+      - name: Upload forward-test report
+        uses: actions/upload-artifact@v4
+        with:
+          name: bitget-forward-paper-report
+          path: forward-paper-report.json
+          if-no-files-found: error
+          retention-days: 30
