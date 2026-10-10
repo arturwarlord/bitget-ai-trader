@@ -204,11 +204,14 @@ def run_backtest(candles):
     max_drawdown_pct = 0.0
     total_cost_pct_points = 0.0
 
-    def update_drawdown():
+    def update_drawdown(marked_equity=None):
+        # Track peak equity and drawdown using mark-to-market equity, not only
+        # realized equity after a trade closes.
         nonlocal equity_peak, max_drawdown_pct
-        equity_peak = max(equity_peak, equity)
+        observed_equity = equity if marked_equity is None else max(0.0, marked_equity)
+        equity_peak = max(equity_peak, observed_equity)
         if equity_peak > 0:
-            drawdown = (equity_peak - equity) / equity_peak * 100
+            drawdown = (equity_peak - observed_equity) / equity_peak * 100
             max_drawdown_pct = max(max_drawdown_pct, drawdown)
 
     def close_position(exit_price, exit_timestamp, exit_reason):
@@ -305,8 +308,18 @@ def run_backtest(candles):
                 close_position(candle["close"], candle["timestamp"], "max_holding_time")
                 exited_this_candle = True
 
+        # Mark open-position risk at the adverse intrabar extreme. This is a
+        # conservative drawdown estimate; it does not change realized trade P&L.
+        if position is not None:
+            side = position["side"]
+            adverse_price = candle["low"] if side == 1 else candle["high"]
+            unrealized_pct = side * (adverse_price / position["entry_price"] - 1) * 100
+            marked_equity = equity * max(0.0, 1 + unrealized_pct / 100)
+            update_drawdown(marked_equity)
+        else:
+            update_drawdown()
+
         # Signals are events, not a required state: None means keep current position.
-        # A crossover schedules entry/exit for the next candle open.
         if not exited_this_candle and signals[i] is not None:
             desired = signals[i]
             current_side = position["side"] if position else 0
@@ -372,8 +385,9 @@ def run_backtest(candles):
         "warning": (
             "Historical simulation only. Fee and slippage values are estimates; funding is excluded. "
             "OHLC candles cannot reveal intrabar price order, so if stop and target are both touched "
-            "the stop is assumed first. Entries are at the next candle open. Results do not predict "
-            "future performance and require out-of-sample validation."
+            "the stop is assumed first. Entries are at the next candle open. Maximum drawdown includes "
+            "conservative adverse intrabar mark-to-market for open positions. The 70/30 holdout is "
+            "preliminary only; results do not predict future performance."
         ),
     }
 
@@ -381,6 +395,31 @@ def run_backtest(candles):
 def main():
     candles = get_candles()
     report = run_backtest(candles)
+
+    # Chronological holdout: first 70% is the development period, final 30%
+    # is an untouched out-of-sample period. Indicators are recalculated on the
+    # holdout slice, including a fresh warmup, to avoid using earlier trade state.
+    split_index = int(len(candles) * 0.70)
+    holdout_candles = candles[split_index:]
+    holdout_report = run_backtest(holdout_candles)
+    report["validation"] = {
+        "method": "chronological 70/30 split; final 30% held out",
+        "development_period_start_utc": report["first_candle_utc"],
+        "development_period_end_utc": datetime.fromtimestamp(
+            candles[split_index - 1]["timestamp"] / 1000, timezone.utc
+        ).isoformat(),
+        "out_of_sample_start_utc": holdout_report["first_candle_utc"],
+        "out_of_sample_end_utc": holdout_report["last_candle_utc"],
+        "out_of_sample_candles_including_indicator_warmup": holdout_report["candles_tested"],
+        "out_of_sample_trades": holdout_report["trades"],
+        "out_of_sample_win_rate_pct": holdout_report["win_rate_pct"],
+        "out_of_sample_profit_factor": holdout_report["profit_factor"],
+        "out_of_sample_compounded_unleveraged_return_pct": holdout_report["compounded_unleveraged_return_pct"],
+        "out_of_sample_max_drawdown_pct": holdout_report["max_drawdown_pct"],
+        "out_of_sample_buy_and_hold_gross_return_pct": holdout_report["buy_and_hold_gross_return_pct"],
+        "note": "This is a preliminary holdout, not proof of robustness. A short 30-day sample may be regime-dependent; strategy parameters were not optimized on the holdout."
+    }
+
     with open("backtest-report.json", "w", encoding="utf-8") as report_file:
         json.dump(report, report_file, indent=2, ensure_ascii=False)
 
