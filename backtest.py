@@ -8,10 +8,10 @@ BASE_URL = "https://api.bitget.com"
 SYMBOL = "BTCUSDT"
 PRODUCT_TYPE = "USDT-FUTURES"
 TIMEFRAME = "5m"
-CANDLE_LIMIT = 1000
+CANDLE_LIMIT = 200  # Bitget historical-candles endpoint maximum
 TIMEFRAME_MS = 5 * 60 * 1000
-HISTORY_DAYS = 30
-MAX_PAGES = 12
+HISTORY_DAYS = 90
+MAX_PAGES = 500  # 90 days of 5m candles needs about 130 pages at 200 candles/page
 
 # Illustrative estimates, not your actual Bitget fee tier.
 TAKER_FEE_PER_SIDE = 0.0006
@@ -38,10 +38,10 @@ def request_candles(end_time_ms=None):
     if end_time_ms is not None:
         params["endTime"] = str(end_time_ms)
 
-    url = f"{BASE_URL}/api/v2/mix/market/candles?{urllib.parse.urlencode(params)}"
+    url = f"{BASE_URL}/api/v2/mix/market/history-candles?{urllib.parse.urlencode(params)}"
     request = urllib.request.Request(
         url,
-        headers={"User-Agent": "bitget-ai-trader-backtest/0.3", "Accept": "application/json"},
+        headers={"User-Agent": "bitget-ai-trader-backtest/0.4", "Accept": "application/json"},
     )
     with urllib.request.urlopen(request, timeout=30) as response:
         payload = json.loads(response.read().decode("utf-8"))
