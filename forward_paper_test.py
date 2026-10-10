@@ -120,7 +120,6 @@ def main():
             if state["position"] is None:
                 entry = c["open"]
                 risk = STOP_ATR_MULT * pending["atr"]
-                signal_index = pending["signal_index"]
                 state["position"] = {
                     "side": -1,
                     "entry_price": entry,
