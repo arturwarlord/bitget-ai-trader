@@ -193,7 +193,7 @@ def make_signals(candles):
     return signals, atr
 
 
-def run_backtest(candles):
+def run_backtest(candles, timeframe_minutes=5):
     signals, atr_values = make_signals(candles)
     position = None
     pending_side = None  # None means no scheduled action; 0 means scheduled exit.
@@ -246,6 +246,7 @@ def run_backtest(candles):
         update_drawdown()
 
     warmup = EMA_TREND + 2
+    max_hold_candles_for_run = max(1, round(MAX_HOLD_CANDLES * 5 / timeframe_minutes))
     for i in range(warmup, len(candles)):
         candle = candles[i]
         exited_this_candle = False
@@ -304,7 +305,7 @@ def run_backtest(candles):
             if exit_price is not None:
                 close_position(exit_price, candle["timestamp"], exit_reason)
                 exited_this_candle = True
-            elif position is not None and position["bars_held"] >= MAX_HOLD_CANDLES:
+            elif position is not None and position["bars_held"] >= max_hold_candles_for_run:
                 close_position(candle["close"], candle["timestamp"], "max_holding_time")
                 exited_this_candle = True
 
@@ -406,7 +407,7 @@ def run_backtest(candles):
         "exchange": "Bitget",
         "market": "USDT Futures",
         "symbol": SYMBOL,
-        "timeframe": TIMEFRAME,
+        "timeframe": TIMEFRAME if timeframe_minutes == 5 else f"{timeframe_minutes}m",
         "strategy": "EMA 9/21 crossover events + EMA 200 trend filter + RSI entry confirmation + ATR stop/target",
         "history_days_requested": HISTORY_DAYS,
         "candles_tested": len(candles),
@@ -424,8 +425,8 @@ def run_backtest(candles):
             "short_rsi_range": "32 < RSI <= 48",
             "stop_loss_atr_multiplier": STOP_ATR_MULTIPLIER,
             "take_profit_atr_multiplier": TAKE_PROFIT_ATR_MULTIPLIER,
-            "max_holding_candles": MAX_HOLD_CANDLES,
-            "max_holding_minutes": MAX_HOLD_CANDLES * 5,
+            "max_holding_candles": max_hold_candles_for_run,
+            "max_holding_minutes": max_hold_candles_for_run * timeframe_minutes,
             "position_sizing": "unleveraged; notional equals current equity",
         },
         "trades": len(trades),
@@ -439,7 +440,7 @@ def run_backtest(candles):
         "gross_winning_trades_sum_pct_points": round(gross_winning_trades_sum, 4),
         "gross_losing_trades_sum_pct_points": round(gross_losing_trades_sum, 4),
         "average_bars_held": round(average_bars_held, 2),
-        "average_holding_minutes": round(average_bars_held * 5, 2),
+        "average_holding_minutes": round(average_bars_held * timeframe_minutes, 2),
         "average_net_trade_return_pct": round(net_sum / len(trades), 4) if trades else 0.0,
         "gross_sum_of_trade_returns_pct": round(gross_sum, 4),
         "net_sum_of_trade_returns_pct": round(net_sum, 4),
@@ -460,33 +461,109 @@ def run_backtest(candles):
     }
 
 
+def aggregate_candles(candles, source_minutes=5, target_minutes=15):
+    """Aggregate closed source candles into aligned, complete target candles."""
+    if target_minutes % source_minutes != 0:
+        raise ValueError("Target timeframe must be a multiple of source timeframe.")
+    ratio = target_minutes // source_minutes
+    buckets = {}
+    target_ms = target_minutes * 60 * 1000
+    source_ms = source_minutes * 60 * 1000
+
+    for candle in candles:
+        bucket_start = (candle["timestamp"] // target_ms) * target_ms
+        buckets.setdefault(bucket_start, []).append(candle)
+
+    aggregated = []
+    for bucket_start in sorted(buckets):
+        group = sorted(buckets[bucket_start], key=lambda c: c["timestamp"])
+        # Require every expected source candle and exact alignment. This avoids
+        # creating a 15m candle from a partial group near data gaps.
+        if len(group) != ratio:
+            continue
+        expected = [bucket_start + i * source_ms for i in range(ratio)]
+        if [c["timestamp"] for c in group] != expected:
+            continue
+        aggregated.append({
+            "timestamp": bucket_start,
+            "open": group[0]["open"],
+            "high": max(c["high"] for c in group),
+            "low": min(c["low"] for c in group),
+            "close": group[-1]["close"],
+        })
+    return aggregated
+
+
+def compact_comparison(report):
+    return {
+        "timeframe": report["timeframe"],
+        "candles_tested": report["candles_tested"],
+        "trades": report["trades"],
+        "win_rate_pct": report["win_rate_pct"],
+        "profit_factor": report["profit_factor"],
+        "compounded_unleveraged_return_pct": report["compounded_unleveraged_return_pct"],
+        "max_drawdown_pct": report["max_drawdown_pct"],
+        "average_holding_minutes": report["average_holding_minutes"],
+        "exit_reason_breakdown": report["exit_reason_breakdown"],
+        "validation": report.get("validation"),
+    }
+
+
 def main():
     candles = get_candles()
-    report = run_backtest(candles)
+    report = run_backtest(candles, timeframe_minutes=5)
 
-    # Chronological holdout: first 70% is the development period, final 30%
-    # is an untouched out-of-sample period. Indicators are recalculated on the
-    # holdout slice, including a fresh warmup, to avoid using earlier trade state.
-    split_index = int(len(candles) * 0.70)
-    holdout_candles = candles[split_index:]
-    holdout_report = run_backtest(holdout_candles)
-    report["validation"] = {
-        "method": "chronological 70/30 split; final 30% held out",
-        "development_period_start_utc": report["first_candle_utc"],
-        "development_period_end_utc": datetime.fromtimestamp(
-            candles[split_index - 1]["timestamp"] / 1000, timezone.utc
-        ).isoformat(),
-        "out_of_sample_start_utc": holdout_report["first_candle_utc"],
-        "out_of_sample_end_utc": holdout_report["last_candle_utc"],
-        "out_of_sample_candles_including_indicator_warmup": holdout_report["candles_tested"],
-        "out_of_sample_trades": holdout_report["trades"],
-        "out_of_sample_win_rate_pct": holdout_report["win_rate_pct"],
-        "out_of_sample_profit_factor": holdout_report["profit_factor"],
-        "out_of_sample_compounded_unleveraged_return_pct": holdout_report["compounded_unleveraged_return_pct"],
-        "out_of_sample_max_drawdown_pct": holdout_report["max_drawdown_pct"],
-        "out_of_sample_buy_and_hold_gross_return_pct": holdout_report["buy_and_hold_gross_return_pct"],
-        "note": "This is a preliminary holdout, not proof of robustness. A short 30-day sample may be regime-dependent; strategy parameters were not optimized on the holdout."
+    # Compare a slower 15m version using only fully formed groups of three
+    # 5m candles. The max holding horizon remains four hours (16 x 15m bars).
+    candles_15m = aggregate_candles(candles, source_minutes=5, target_minutes=15)
+    if len(candles_15m) < 500:
+        raise RuntimeError(
+            f"Only {len(candles_15m)} complete 15m candles available; "
+            "cannot run a meaningful 15m comparison."
+        )
+    report_15m = run_backtest(candles_15m, timeframe_minutes=15)
+
+    report["timeframe_comparison"] = {
+        "purpose": "Diagnostic comparison only; no parameter optimization performed.",
+        "holding_horizon_minutes": MAX_HOLD_CANDLES * 5,
+        "5m": compact_comparison(report),
+        "15m": compact_comparison(report_15m),
+        "method_note": (
+            "15m candles are aggregated from complete aligned groups of three 5m candles. "
+            "EMA/RSI/ATR periods remain the same number of bars, so their time horizons differ. "
+            "The max holding horizon is kept at four hours. Same estimated round-trip cost is "
+            "applied per trade; actual execution costs can differ by timeframe and venue conditions."
+        ),
     }
+
+    # Chronological holdout for both timeframes: the final 30% is evaluated
+    # separately, with indicator warmup recalculated on each holdout slice.
+    def add_validation(target_report, target_candles, timeframe_minutes):
+        split = int(len(target_candles) * 0.70)
+        holdout = target_candles[split:]
+        held_report = run_backtest(holdout, timeframe_minutes=timeframe_minutes)
+        target_report["validation"] = {
+            "method": "chronological 70/30 split; final 30% held out",
+            "development_period_end_utc": datetime.fromtimestamp(
+                target_candles[split - 1]["timestamp"] / 1000, timezone.utc
+            ).isoformat(),
+            "out_of_sample_start_utc": held_report["first_candle_utc"],
+            "out_of_sample_end_utc": held_report["last_candle_utc"],
+            "out_of_sample_candles_including_indicator_warmup": held_report["candles_tested"],
+            "out_of_sample_trades": held_report["trades"],
+            "out_of_sample_win_rate_pct": held_report["win_rate_pct"],
+            "out_of_sample_profit_factor": held_report["profit_factor"],
+            "out_of_sample_compounded_unleveraged_return_pct": held_report["compounded_unleveraged_return_pct"],
+            "out_of_sample_max_drawdown_pct": held_report["max_drawdown_pct"],
+            "out_of_sample_buy_and_hold_gross_return_pct": held_report["buy_and_hold_gross_return_pct"],
+            "note": "Preliminary 30-day holdout only; not proof of robustness. Indicators are recalculated on the holdout slice."
+        }
+        return held_report
+
+    add_validation(report, candles, timeframe_minutes=5)
+    add_validation(report_15m, candles_15m, timeframe_minutes=15)
+    report["timeframe_comparison"]["5m"] = compact_comparison(report)
+    report["timeframe_comparison"]["15m"] = compact_comparison(report_15m)
 
     with open("backtest-report.json", "w", encoding="utf-8") as report_file:
         json.dump(report, report_file, indent=2, ensure_ascii=False)
