@@ -1,0 +1,30 @@
+name: Bitget Market Analysis
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/15 * * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bitget-market-analysis
+  cancel-in-progress: false
+
+jobs:
+  analyze:
+    name: Analyze BTCUSDT market
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run read-only market analysis
+        run: python main.py
