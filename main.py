@@ -1,5 +1,4 @@
 import json
-import math
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
@@ -35,8 +34,7 @@ def get_candles():
     if not rows:
         raise RuntimeError("Bitget returned no candle data")
 
-    # API returns newest candles first; indicators need oldest first.
-    rows = list(reversed(rows))
+    # Sort by timestamp instead of relying on the API response order.
     candles = []
     for row in rows:
         if len(row) < 5:
@@ -52,6 +50,7 @@ def get_candles():
     if len(candles) < 30:
         raise RuntimeError(f"Not enough candle data: received {len(candles)}")
 
+    candles.sort(key=lambda candle: candle["timestamp"])
     return candles
 
 
@@ -90,6 +89,16 @@ def analyze():
     candles = get_candles()
     closes = [candle["close"] for candle in candles]
     last = candles[-1]
+
+    now = datetime.now(timezone.utc).timestamp()
+    candle_age_seconds = now - (last["timestamp"] / 1000)
+    if candle_age_seconds < -300 or candle_age_seconds > 900:
+        age_minutes = round(candle_age_seconds / 60, 1)
+        raise RuntimeError(
+            f"Latest 5m candle is stale or has a future timestamp "
+            f"(age: {age_minutes} minutes). Refusing to produce a trading signal."
+        )
+
     ema_9 = ema(closes, 9)
     ema_21 = ema(closes, 21)
     rsi_14 = rsi(closes, 14)
