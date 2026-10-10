@@ -1,0 +1,36 @@
+name: Bitget Donchian Breakout Experiment
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bitget-donchian-experiment
+  cancel-in-progress: false
+
+jobs:
+  experiment:
+    name: Read-only BTCUSDT breakout backtest
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run read-only Donchian experiment
+        run: python donchian_experiment.py
+
+      - name: Save experiment report
+        uses: actions/upload-artifact@v4
+        with:
+          name: bitget-donchian-report
+          path: donchian-report.json
+          if-no-files-found: error
+          retention-days: 14
