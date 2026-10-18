@@ -1,0 +1,36 @@
+name: Backtest Correctness Tests
+
+on:
+  push:
+    paths:
+      - "backtest.py"
+      - "tests/**"
+      - ".github/workflows/backtest-tests.yml"
+  pull_request:
+    paths:
+      - "backtest.py"
+      - "tests/**"
+      - ".github/workflows/backtest-tests.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backtest-correctness-tests
+  cancel-in-progress: false
+
+jobs:
+  tests:
+    name: Unit tests (no exchange orders)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run unit tests
+        run: python -m unittest discover -s tests -v
