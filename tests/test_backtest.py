@@ -98,9 +98,11 @@ class BacktestUnitTests(unittest.TestCase):
         self.assertGreaterEqual(report["trades"], 0)
 
 
-    def _run_controlled_trade(self, entry_candle):
+    def _run_controlled_trade(self, entry_candle, next_candle=None):
         candles = [candle(i * bt.TIMEFRAME_MS, 100, 100.5, 99.5, 100) for i in range(210)]
         candles[203] = entry_candle
+        if next_candle is not None:
+            candles[204] = next_candle
         signals = [None] * len(candles)
         atr_values = [1.0] * len(candles)
         signals[202] = 1  # signal at candle close; enter at candle 203 open
@@ -127,8 +129,9 @@ class BacktestUnitTests(unittest.TestCase):
         self.assertAlmostEqual(trade["net_return_pct"], -1.66, places=4)
 
     def test_gap_through_stop_exits_at_open_not_stop_price(self):
-        entry = candle(203 * bt.TIMEFRAME_MS, 97, 99, 96, 98)
-        report = self._run_controlled_trade(entry)
+        entry = candle(203 * bt.TIMEFRAME_MS, 100, 101, 99, 100)
+        gap = candle(204 * bt.TIMEFRAME_MS, 97, 99, 96, 98)
+        report = self._run_controlled_trade(entry, gap)
         trade = report["recent_trades"][0]
         self.assertEqual(trade["exit_reason"], "stop_gap")
         self.assertEqual(trade["exit_price"], 97.0)
