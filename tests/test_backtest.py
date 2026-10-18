@@ -1,5 +1,6 @@
 import math
 import unittest
+from unittest import mock
 
 import backtest as bt
 
@@ -103,7 +104,7 @@ class BacktestUnitTests(unittest.TestCase):
         signals = [None] * len(candles)
         atr_values = [1.0] * len(candles)
         signals[202] = 1  # signal at candle close; enter at candle 203 open
-        with unittest.mock.patch.object(bt, "make_signals", return_value=(signals, atr_values)):
+        with mock.patch.object(bt, "make_signals", return_value=(signals, atr_values)):
             return bt.run_backtest(candles)
 
     def test_entry_uses_next_candle_open_and_charges_round_trip_cost(self):
