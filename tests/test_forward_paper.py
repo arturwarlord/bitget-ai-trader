@@ -104,10 +104,8 @@ class ForwardPaperStateTests(unittest.TestCase):
     def test_open_position_survives_restart_and_continues_on_new_candle(self):
         self.write_state(self.base_state(self.candles[0]["timestamp"]))
 
-        with mock.patch.object(paper, "get_candles", return_value=self.candles[:2]):
-            # Patch the module-level function used by main via the imported experiment module.
-            with mock.patch.object(paper.exp, "get_candles", return_value=self.candles[:2]):
-                self.run_main()
+        with mock.patch.object(paper.exp, "get_candles", return_value=self.candles[:2]):
+            self.run_main()
 
         first_state = self.read_state()
         self.assertIsNotNone(first_state["position"])
