@@ -97,5 +97,43 @@ class BacktestUnitTests(unittest.TestCase):
         self.assertGreaterEqual(report["trades"], 0)
 
 
+    def _run_controlled_trade(self, entry_candle):
+        candles = [candle(i * bt.TIMEFRAME_MS, 100, 100.5, 99.5, 100) for i in range(210)]
+        candles[203] = entry_candle
+        signals = [None] * len(candles)
+        atr_values = [1.0] * len(candles)
+        signals[202] = 1  # signal at candle close; enter at candle 203 open
+        with unittest.mock.patch.object(bt, "make_signals", return_value=(signals, atr_values)):
+            return bt.run_backtest(candles)
+
+    def test_entry_uses_next_candle_open_and_charges_round_trip_cost(self):
+        entry = candle(203 * bt.TIMEFRAME_MS, 100, 101, 99, 100)
+        report = self._run_controlled_trade(entry)
+        self.assertEqual(report["trades"], 1)
+        trade = report["recent_trades"][0]
+        self.assertEqual(trade["entry_price"], 100.0)
+        self.assertEqual(trade["entry_candle_utc"], "1970-01-01T16:55:00+00:00")
+        self.assertEqual(trade["exit_reason"], "end_of_test")
+        self.assertAlmostEqual(trade["net_return_pct"], -0.16, places=4)
+        self.assertAlmostEqual(report["estimated_cost_sum_pct_points"], 0.16, places=4)
+
+    def test_stop_wins_when_stop_and_target_are_both_touched(self):
+        entry = candle(203 * bt.TIMEFRAME_MS, 100, 103, 97, 100)
+        report = self._run_controlled_trade(entry)
+        trade = report["recent_trades"][0]
+        self.assertEqual(trade["exit_reason"], "stop_loss")
+        self.assertAlmostEqual(trade["exit_price"], 98.5, places=2)
+        self.assertAlmostEqual(trade["net_return_pct"], -1.66, places=4)
+
+    def test_gap_through_stop_exits_at_open_not_stop_price(self):
+        entry = candle(203 * bt.TIMEFRAME_MS, 97, 99, 96, 98)
+        report = self._run_controlled_trade(entry)
+        trade = report["recent_trades"][0]
+        self.assertEqual(trade["exit_reason"], "stop_gap")
+        self.assertEqual(trade["exit_price"], 97.0)
+        self.assertAlmostEqual(trade["gross_return_pct"], -3.0, places=4)
+        self.assertAlmostEqual(trade["net_return_pct"], -3.16, places=4)
+
+
 if __name__ == "__main__":
     unittest.main()
