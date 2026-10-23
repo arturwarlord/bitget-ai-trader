@@ -1,6 +1,6 @@
 {
   "created_at_utc": "2026-10-10T16:02:48.428367+00:00",
-  "last_processed_timestamp": 1792706400000,
+  "last_processed_timestamp": 1792718100000,
   "position": null,
   "pending": null,
   "trades": [
@@ -36,5 +36,5 @@
     "weak"
   ],
   "estimated_round_trip_cost_pct": 0.15999999999999998,
-  "updated_at_utc": "2026-10-22T22:26:29.187618+00:00"
+  "updated_at_utc": "2026-10-23T01:37:26.717467+00:00"
 }
