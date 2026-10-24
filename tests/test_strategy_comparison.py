@@ -104,5 +104,16 @@ class StrategyComparisonTests(unittest.TestCase):
             )
 
 
+    def test_15m_comparison_keeps_the_same_four_hour_max_holding_time(self):
+        candles_5m = synthetic_candles(4200)
+        candles_15m = bt.aggregate_candles(candles_5m, 5, 15)
+        report = run_comparison(candles_15m, fold_count=3, timeframe_minutes=15)
+        self.assertEqual(report["timeframe"], "15m")
+        self.assertEqual(report["candles_total"], len(candles_15m))
+        self.assertEqual(report["common_execution"]["max_holding_candles"], 16)
+        self.assertEqual(report["common_execution"]["max_holding_minutes"], 240)
+        self.assertFalse(report["trading_enabled"])
+
+
 if __name__ == "__main__":
     unittest.main()
