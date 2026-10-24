@@ -291,13 +291,11 @@ def run_comparison(candles, fold_count=FOLD_COUNT):
                         "metrics": _metrics(report),
                     }
                     strategy_results[config["name"]].append(result)
-                    if cost_pct == BASE_COST_PCT:
-                        fold_result["results"].append({
-                            "config": config,
-                            "metrics": result["metrics"],
-                        })
-                if cost_pct == BASE_COST_PCT:
-                    fold_results.append(fold_result)
+                    fold_result["results"].append({
+                        "config": config,
+                        "metrics": result["metrics"],
+                    })
+                fold_results.append(fold_result)
 
             folds_by_cost[f"{cost_pct:.2f}%"] = fold_results
             aggregates_by_cost[f"{cost_pct:.2f}%"] = {
