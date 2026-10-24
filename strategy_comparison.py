@@ -184,13 +184,13 @@ def _apply_common_execution(config, cost_pct):
     bt.ROUND_TRIP_COST_PCT = cost_pct
 
 
-def _run_one(candles, config, start, end, cost_pct):
+def _run_one(candles, config, start, end, cost_pct, timeframe_minutes=5):
     _apply_common_execution(config, cost_pct)
     sample = candles[:end]
     kind = config["kind"]
     if kind == "ema":
         # Use the production EMA signal implementation and the shared simulator.
-        return bt.run_backtest(sample, timeframe_minutes=5, evaluation_start_index=start)
+        return bt.run_backtest(sample, timeframe_minutes=timeframe_minutes, evaluation_start_index=start)
 
     if kind == "donchian":
         signal_builder = lambda data: donchian_signals(
@@ -219,7 +219,7 @@ def _run_one(candles, config, start, end, cost_pct):
 
     # The patched builder receives only sample candles, which end at this fold.
     with mock.patch.object(bt, "make_signals", side_effect=signal_builder):
-        return bt.run_backtest(sample, timeframe_minutes=5, evaluation_start_index=start)
+        return bt.run_backtest(sample, timeframe_minutes=timeframe_minutes, evaluation_start_index=start)
 
 
 def _metrics(report):
@@ -249,7 +249,7 @@ def _aggregate(fold_results):
     }
 
 
-def run_comparison(candles, fold_count=FOLD_COUNT):
+def run_comparison(candles, fold_count=FOLD_COUNT, timeframe_minutes=5):
     if len(candles) < 1000:
         raise ValueError("At least 1,000 candles are required for this comparison.")
     ranges = fold_ranges(
@@ -285,7 +285,7 @@ def run_comparison(candles, fold_count=FOLD_COUNT):
                     "results": [],
                 }
                 for config in STRATEGIES:
-                    report = _run_one(candles, config, start, end, cost_pct)
+                    report = _run_one(candles, config, start, end, cost_pct, timeframe_minutes)
                     result = {
                         "strategy": config["name"],
                         "metrics": _metrics(report),
@@ -307,7 +307,7 @@ def run_comparison(candles, fold_count=FOLD_COUNT):
             "checked_at_utc": datetime.now(timezone.utc).isoformat(),
             "exchange": "Bitget",
             "symbol": bt.SYMBOL,
-            "timeframe": "5m",
+            "timeframe": f"{timeframe_minutes}m",
             "history_days_requested": bt.HISTORY_DAYS,
             "candles_total": len(candles),
             "first_candle_utc": datetime.fromtimestamp(
@@ -324,7 +324,8 @@ def run_comparison(candles, fold_count=FOLD_COUNT):
                 "entry_timing": "signal at candle close; enter/reverse at next candle open",
                 "stop_atr_multiplier": 1.5,
                 "target_atr_multiplier": 2.0,
-                "max_holding_candles": MAX_HOLD_CANDLES,
+                "max_holding_candles": max(1, round(MAX_HOLD_CANDLES * 5 / timeframe_minutes)),
+                "max_holding_minutes": MAX_HOLD_CANDLES * 5,
                 "base_round_trip_cost_pct": BASE_COST_PCT,
                 "cost_scenarios_pct": list(COST_SCENARIOS_PCT),
                 "cost_components_reference": "0.06% taker fee per side + 0.02% slippage per side at base",
@@ -344,7 +345,7 @@ def run_comparison(candles, fold_count=FOLD_COUNT):
                 "Research-only historical simulation, not a trading recommendation. Fee and "
                 "slippage values are estimates; funding is excluded. OHLC data cannot reveal "
                 "intrabar price order, so the simulator assumes stop first if stop and target "
-                "are both touched. The pullback hypothesis is evaluated on 5-minute bars for "
+                "are both touched. The pullback hypothesis is evaluated on the requested timeframe for "
                 "apples-to-apples comparison; it may differ from the original 15-minute experiment. "
                 "No orders are placed."
             ),
@@ -355,26 +356,47 @@ def run_comparison(candles, fold_count=FOLD_COUNT):
 
 
 def main():
-    candles = bt.get_candles()
-    report = run_comparison(candles)
+    candles_5m = bt.get_candles()
+    candles_15m = bt.aggregate_candles(candles_5m, 5, 15)
+    report = {
+        "checked_at_utc": datetime.now(timezone.utc).isoformat(),
+        "exchange": "Bitget",
+        "symbol": bt.SYMBOL,
+        "timeframes": {
+            "5m": run_comparison(candles_5m, timeframe_minutes=5),
+            "15m": run_comparison(candles_15m, timeframe_minutes=15),
+        },
+        "trading_enabled": False,
+        "warning": (
+            "The 5m and 15m reports use the same raw 5m market-data snapshot; 15m candles "
+            "are aggregated only from complete aligned groups. Each timeframe has its own "
+            "chronological folds and all strategies use identical exits and costs within that timeframe."
+        ),
+    }
     with open("strategy-comparison-report.json", "w", encoding="utf-8") as output:
         json.dump(report, output, indent=2, ensure_ascii=False)
 
     compact = {
         "checked_at_utc": report["checked_at_utc"],
-        "candles_total": report["candles_total"],
-        "fold_count": report["fold_count"],
-        "common_execution": report["common_execution"],
-        "aggregate_by_strategy": report["aggregate_by_strategy"],
-        "cost_sensitivity_by_round_trip_cost_pct": report[
-            "cost_sensitivity_by_round_trip_cost_pct"
-        ],
+        "candles_5m": len(candles_5m),
+        "candles_15m": len(candles_15m),
+        "results_by_timeframe": {
+            timeframe: {
+                "candles_total": timeframe_report["candles_total"],
+                "fold_count": timeframe_report["fold_count"],
+                "common_execution": timeframe_report["common_execution"],
+                "aggregate_by_strategy": timeframe_report["aggregate_by_strategy"],
+                "cost_sensitivity_by_round_trip_cost_pct": timeframe_report[
+                    "cost_sensitivity_by_round_trip_cost_pct"
+                ],
+            }
+            for timeframe, timeframe_report in report["timeframes"].items()
+        },
         "trading_enabled": False,
     }
     print("\n===== BITGET STRATEGY COMPARISON (READ-ONLY) =====")
     print(json.dumps(compact, indent=2, ensure_ascii=False))
     print("\nSafety: public market data only. No orders are placed.")
-
 
 if __name__ == "__main__":
     try:
