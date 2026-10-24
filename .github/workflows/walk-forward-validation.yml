@@ -1,0 +1,39 @@
+name: Bitget Walk-Forward Validation
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bitget-walk-forward-validation
+  cancel-in-progress: false
+
+jobs:
+  walk-forward:
+    name: Validate fixed strategies across chronological folds (read-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run unit tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Run walk-forward validation
+        run: python walk_forward.py
+
+      - name: Save walk-forward report
+        uses: actions/upload-artifact@v4
+        with:
+          name: bitget-walk-forward-report
+          path: walk-forward-report.json
+          if-no-files-found: error
+          retention-days: 14
