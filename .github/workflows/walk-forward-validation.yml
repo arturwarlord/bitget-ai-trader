@@ -15,9 +15,9 @@ concurrency:
 
 jobs:
   walk-forward:
-    name: Validate fixed strategies across chronological folds (read-only)
+    name: Compare fixed strategies across chronological folds (read-only)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -30,13 +30,24 @@ jobs:
       - name: Run unit tests
         run: python -m unittest discover -s tests -v
 
-      - name: Run walk-forward validation
+      - name: Run EMA walk-forward validation
         run: python walk_forward.py
 
-      - name: Save walk-forward report
+      - name: Compare EMA, Donchian, pullback and ADX-filtered breakout
+        run: python strategy_comparison.py
+
+      - name: Save EMA walk-forward report
         uses: actions/upload-artifact@v4
         with:
           name: bitget-walk-forward-report
           path: walk-forward-report.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Save cross-strategy comparison report
+        uses: actions/upload-artifact@v4
+        with:
+          name: bitget-strategy-comparison-report
+          path: strategy-comparison-report.json
           if-no-files-found: error
           retention-days: 14
