@@ -24,7 +24,7 @@ class HigherTimeframeSignalTests(unittest.TestCase):
         ema = [None] * len(hourly)
         for i in range(199, len(ema)):
             ema[i] = float(ema_value)
-        with mock.patch.object(base, "ema_series", return_value=ema), \
+        with mock.patch.object(base, "ema_series", return_value=ema), \\
              mock.patch.object(base, "atr_series", return_value=[1.0] * len(candles)):
             return htf.htf_signals(candles, hourly)
 
@@ -42,8 +42,9 @@ class HigherTimeframeSignalTests(unittest.TestCase):
         self.assertIsNone(signals[20])
 
     def test_uses_latest_fully_closed_hourly_candle(self):
-        # Signal candle closes after the first hourly candle has completed.
-        start = htf.HOUR_MS
+        # Place the breakout after EMA200 warmup so this test isolates
+        # completed-candle timing rather than failing on an unavailable EMA.
+        start = 205 * htf.HOUR_MS
         candles = [
             candle(start + i * base.TIMEFRAME_MS, high=101, low=99, close=100)
             for i in range(25)
@@ -54,7 +55,9 @@ class HigherTimeframeSignalTests(unittest.TestCase):
         self.assertEqual(signals[20], 1)
 
     def test_hourly_ema_is_used_as_direction_filter(self):
-        start = htf.HOUR_MS
+        # Use a warmed-up hourly EMA; a breakout above the channel must still
+        # be rejected when price is below the hourly EMA.
+        start = 205 * htf.HOUR_MS
         candles = [
             candle(start + i * base.TIMEFRAME_MS, high=101, low=99, close=100)
             for i in range(25)
@@ -72,7 +75,7 @@ class HigherTimeframeSignalTests(unittest.TestCase):
         ]
         candles[20]["close"] = 120
         candles[20]["high"] = 121
-        with mock.patch.object(base, "ema_series", return_value=[None] * len(self.hourly)), \
+        with mock.patch.object(base, "ema_series", return_value=[None] * len(self.hourly)), \\
              mock.patch.object(base, "atr_series", return_value=[1.0] * len(candles)):
             signals, _ = htf.htf_signals(candles, self.hourly)
         self.assertIsNone(signals[20])
