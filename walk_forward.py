@@ -111,6 +111,37 @@ def run_walk_forward(candles, fold_count=FOLD_COUNT):
             "fold_returns_pct": [round(value, 4) for value in values],
         }
 
+    # Stress-test fixed strategies under higher round-trip costs. This is not
+    # parameter optimization: strategy settings and fold boundaries remain fixed.
+    original_cost = bt.ROUND_TRIP_COST_PCT
+    cost_sensitivity = {}
+    try:
+        for cost_pct in (0.16, 0.20, 0.24):
+            bt.ROUND_TRIP_COST_PCT = cost_pct
+            cost_sensitivity[f"{cost_pct:.2f}%"] = {}
+            for config in CONFIGS:
+                apply_config(config)
+                fold_returns = []
+                fold_trade_counts = []
+                for start, end in ranges:
+                    report = bt.run_backtest(
+                        candles[:end],
+                        timeframe_minutes=5,
+                        evaluation_start_index=start,
+                    )
+                    fold_returns.append(report["compounded_unleveraged_return_pct"])
+                    fold_trade_counts.append(report["trades"])
+                cost_sensitivity[f"{cost_pct:.2f}%"][config["name"]] = {
+                    "folds": len(fold_returns),
+                    "profitable_folds": sum(value > 0 for value in fold_returns),
+                    "mean_fold_return_pct": round(sum(fold_returns) / len(fold_returns), 4),
+                    "worst_fold_return_pct": round(min(fold_returns), 4),
+                    "fold_returns_pct": [round(value, 4) for value in fold_returns],
+                    "trades_by_fold": fold_trade_counts,
+                }
+    finally:
+        bt.ROUND_TRIP_COST_PCT = original_cost
+
     return {
         "checked_at_utc": datetime.now(timezone.utc).isoformat(),
         "exchange": "Bitget",
@@ -129,6 +160,11 @@ def run_walk_forward(candles, fold_count=FOLD_COUNT):
         ),
         "folds": folds,
         "aggregate_by_config": aggregate,
+        "cost_sensitivity_by_round_trip_cost_pct": cost_sensitivity,
+        "cost_sensitivity_method": (
+            "Same fixed configurations and same chronological folds rerun at 0.16%, 0.20%, "
+            "and 0.24% estimated round-trip cost. No parameters are selected from these results."
+        ),
         "trading_enabled": False,
         "warning": (
             "Research-only historical simulation, not a trading recommendation. Results may "
@@ -151,6 +187,7 @@ def main():
         "fold_count": report["fold_count"],
         "estimated_round_trip_cost_pct": report["estimated_round_trip_cost_pct"],
         "aggregate_by_config": report["aggregate_by_config"],
+        "cost_sensitivity_by_round_trip_cost_pct": report["cost_sensitivity_by_round_trip_cost_pct"],
         "folds": report["folds"],
         "trading_enabled": False,
     }
