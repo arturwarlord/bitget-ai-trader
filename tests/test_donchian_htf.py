@@ -24,7 +24,7 @@ class HigherTimeframeSignalTests(unittest.TestCase):
         ema = [None] * len(hourly)
         for i in range(199, len(ema)):
             ema[i] = float(ema_value)
-        with mock.patch.object(base, "ema_series", return_value=ema), \\
+        with mock.patch.object(base, "ema_series", return_value=ema), \
              mock.patch.object(base, "atr_series", return_value=[1.0] * len(candles)):
             return htf.htf_signals(candles, hourly)
 
@@ -75,7 +75,7 @@ class HigherTimeframeSignalTests(unittest.TestCase):
         ]
         candles[20]["close"] = 120
         candles[20]["high"] = 121
-        with mock.patch.object(base, "ema_series", return_value=[None] * len(self.hourly)), \\
+        with mock.patch.object(base, "ema_series", return_value=[None] * len(self.hourly)), \
              mock.patch.object(base, "atr_series", return_value=[1.0] * len(candles)):
             signals, _ = htf.htf_signals(candles, self.hourly)
         self.assertIsNone(signals[20])
