@@ -81,3 +81,26 @@ Next research should be a separately predeclared hypothesis and, where possible,
 - Funding is excluded.
 - OHLC candles cannot reveal intrabar price order; the simulator assumes the stop is hit first if stop and target are both touched.
 - This is historical simulation only. No orders are placed; trading remains disabled.
+
+
+## Follow-up snapshot
+
+A repeat of the same fixed comparison completed successfully in [GitHub Actions run 40239394552](https://github.com/arturwarlord/bitget-ai-trader/actions/runs/40239394552), checked at **2026-10-25 22:18:05 UTC**. It used 25,791 five-minute candles through 22:10 UTC and 8,511 aggregated fifteen-minute candles through 22:00 UTC. The code and parameters were unchanged; only the latest closed market candle could differ.
+
+| Candidate | 5m mean fold return | 5m profitable folds | 5m trades | 15m mean fold return | 15m profitable folds | 15m trades |
+|---|---:|---:|---:|---:|---:|---:|
+| EMA 9/21 | -10.2882% | 0/6 | 375 | -2.4685% | 0/6 | 113 |
+| EMA 12/30 | -8.5432% | 0/6 | 288 | -2.2293% | 1/6 | 84 |
+| Donchian 20 | -17.7186% | 0/6 | 647 | -5.4389% | 0/6 | 195 |
+| Trend Pullback | -5.8891% | 0/6 | 225 | -1.6694% | 0/6 | 71 |
+| Donchian + ADX >= 20 | -13.1451% | 0/6 | 454 | -3.2162% | 0/6 | 127 |
+| **Bollinger mean-reversion entry** | **-0.4469%** | **0/6** | **11** | **-0.2329%** | **2/6** | **8** |
+
+Latest Bollinger cost stress remained negative at every scenario:
+
+| Timeframe | 0.16% round trip | 0.20% round trip | 0.24% round trip |
+|---|---:|---:|---:|
+| 5m | -0.4469% | -0.5199% | -0.5928% |
+| 15m | -0.2329% | -0.2862% | -0.3395% |
+
+The 15m candidate had two positive folds in this follow-up snapshot, but only eight trades across all six folds and a negative mean return. This does not change the conclusion: the hypothesis has not demonstrated an edge. The successful workflow produced updated [comparison artifacts](https://github.com/arturwarlord/bitget-ai-trader/actions/runs/40239394552/artifacts).
