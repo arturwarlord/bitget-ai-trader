@@ -1,9 +1,11 @@
 import math
 import unittest
+from unittest import mock
 
 import backtest as bt
 from strategy_comparison import (
     adx_series,
+    bollinger_mean_reversion_signals,
     donchian_adx_signals,
     donchian_signals,
     pullback_signals,
@@ -67,6 +69,7 @@ class StrategyComparisonTests(unittest.TestCase):
             lambda data: donchian_signals(data),
             lambda data: pullback_signals(data),
             lambda data: donchian_adx_signals(data),
+            lambda data: bollinger_mean_reversion_signals(data),
         )
         for builder in builders:
             signals_a, atr_a = builder(original)
@@ -78,13 +81,28 @@ class StrategyComparisonTests(unittest.TestCase):
         adx_b = adx_series(changed_future)
         self.assertEqual(adx_a[:cutoff + 1], adx_b[:cutoff + 1])
 
+    def test_bollinger_mean_reversion_requires_extreme_rsi_and_low_adx(self):
+        candles = [candle(i * bt.TIMEFRAME_MS, 100, 101, 99, 100) for i in range(40)]
+        candles[20] = candle(20 * bt.TIMEFRAME_MS, 100, 100, 89, 90)
+
+        with mock.patch.object(bt, "rsi_series", return_value=[25.0] * len(candles)), \
+             mock.patch("strategy_comparison.adx_series", return_value=[10.0] * len(candles)):
+            signals, atr = bollinger_mean_reversion_signals(candles)
+        self.assertEqual(signals[20], 1)
+        self.assertIsNotNone(atr[20])
+
+        with mock.patch.object(bt, "rsi_series", return_value=[25.0] * len(candles)), \
+             mock.patch("strategy_comparison.adx_series", return_value=[25.0] * len(candles)):
+            filtered_signals, _ = bollinger_mean_reversion_signals(candles)
+        self.assertIsNone(filtered_signals[20])
+
     def test_all_fixed_strategy_definitions_are_present_and_read_only(self):
         candles = synthetic_candles(1400)
         report = run_comparison(candles, fold_count=3)
         self.assertFalse(report["trading_enabled"])
         self.assertEqual(
             set(report["aggregate_by_strategy"]),
-            {"ema_9_21", "ema_12_30", "donchian_20", "trend_pullback", "donchian_adx20"},
+            {"ema_9_21", "ema_12_30", "donchian_20", "trend_pullback", "donchian_adx20", "bollinger_mean_reversion"},
         )
         self.assertEqual(report["common_execution"]["stop_atr_multiplier"], 1.5)
         self.assertEqual(report["common_execution"]["target_atr_multiplier"], 2.0)
@@ -92,7 +110,7 @@ class StrategyComparisonTests(unittest.TestCase):
             "0.16%", "0.20%", "0.24%"
         })
         self.assertEqual(len(report["folds"]), 3)
-        self.assertTrue(all(len(fold["results"]) == 5 for fold in report["folds"]))
+        self.assertTrue(all(len(fold["results"]) == 6 for fold in report["folds"]))
 
     def test_cost_sensitivity_reuses_same_fold_boundaries(self):
         report = run_comparison(synthetic_candles(1400), fold_count=3)

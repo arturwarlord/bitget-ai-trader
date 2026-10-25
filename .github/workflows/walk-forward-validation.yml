@@ -2,6 +2,9 @@ name: Bitget Walk-Forward Validation
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - research/mean-reversion-bollinger-adx
   pull_request:
     branches:
       - main
@@ -33,7 +36,7 @@ jobs:
       - name: Run EMA walk-forward validation
         run: python walk_forward.py
 
-      - name: Compare EMA, Donchian, pullback and ADX-filtered breakout
+      - name: Compare EMA, Donchian, pullback, ADX breakout and Bollinger mean reversion
         run: python strategy_comparison.py
 
       - name: Save EMA walk-forward report
