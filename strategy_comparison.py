@@ -5,6 +5,7 @@ sizing, ATR exits, holding limit, fold boundaries and transaction-cost scenarios
 No parameters are selected from out-of-sample results and this module places no orders.
 """
 import json
+import math
 from datetime import datetime, timezone
 from unittest import mock
 
@@ -61,6 +62,18 @@ STRATEGIES = (
         "ema_trend": 200,
         "adx_period": 14,
         "adx_min": 20,
+    },
+    {
+        "name": "bollinger_mean_reversion",
+        "kind": "bollinger_mean_reversion",
+        "description": "Bollinger(20, 2 sigma) breakout entry with RSI14 extreme and ADX14 < 20; shared ATR exits.",
+        "band_period": 20,
+        "band_std": 2.0,
+        "rsi_period": 14,
+        "rsi_low": 30,
+        "rsi_high": 70,
+        "adx_period": 14,
+        "adx_max": 20,
     },
 )
 
@@ -173,6 +186,52 @@ def donchian_adx_signals(candles, period=20, trend_period=200,
     return filtered, atr
 
 
+def bollinger_mean_reversion_signals(
+    candles, band_period=20, band_std=2.0, rsi_period=14,
+    rsi_low=30, rsi_high=70, adx_period=14, adx_max=20,
+):
+    """Range-regime entry hypothesis using only the current and prior closed bars.
+
+    Enter on a close crossing outside the rolling Bollinger band while RSI is
+    extreme and ADX indicates a weak trend. Exits remain in the shared simulator:
+    common ATR stop/target, signal reversal, and maximum holding time.
+    """
+    closes = [c["close"] for c in candles]
+    rsi = bt.rsi_series(closes, rsi_period)
+    atr = bt.atr_series(candles, ATR_PERIOD)
+    adx = adx_series(candles, adx_period)
+    middle = [None] * len(candles)
+    upper = [None] * len(candles)
+    lower = [None] * len(candles)
+
+    for i in range(band_period - 1, len(candles)):
+        window = closes[i - band_period + 1:i + 1]
+        mean = sum(window) / band_period
+        variance = sum((value - mean) ** 2 for value in window) / band_period
+        deviation = math.sqrt(variance)
+        middle[i] = mean
+        upper[i] = mean + band_std * deviation
+        lower[i] = mean - band_std * deviation
+
+    signals = [None] * len(candles)
+    for i in range(1, len(candles)):
+        required = (
+            lower[i - 1], lower[i], upper[i - 1], upper[i],
+            rsi[i], adx[i], atr[i],
+        )
+        if any(value is None for value in required) or atr[i] <= 0:
+            continue
+
+        crossed_below_lower = closes[i - 1] >= lower[i - 1] and closes[i] < lower[i]
+        crossed_above_upper = closes[i - 1] <= upper[i - 1] and closes[i] > upper[i]
+        if crossed_below_lower and rsi[i] <= rsi_low and adx[i] < adx_max:
+            signals[i] = 1
+        elif crossed_above_upper and rsi[i] >= rsi_high and adx[i] < adx_max:
+            signals[i] = -1
+
+    return signals, atr
+
+
 def _apply_common_execution(config, cost_pct):
     bt.EMA_FAST = config.get("ema_fast", 9)
     bt.EMA_SLOW = config.get("ema_slow", 21)
@@ -213,6 +272,17 @@ def _run_one(candles, config, start, end, cost_pct, timeframe_minutes=5):
             config["ema_trend"],
             config["adx_period"],
             config["adx_min"],
+        )
+    elif kind == "bollinger_mean_reversion":
+        signal_builder = lambda data: bollinger_mean_reversion_signals(
+            data,
+            config["band_period"],
+            config["band_std"],
+            config["rsi_period"],
+            config["rsi_low"],
+            config["rsi_high"],
+            config["adx_period"],
+            config["adx_max"],
         )
     else:
         raise ValueError(f"Unknown strategy kind: {kind}")
@@ -345,9 +415,10 @@ def run_comparison(candles, fold_count=FOLD_COUNT, timeframe_minutes=5):
                 "Research-only historical simulation, not a trading recommendation. Fee and "
                 "slippage values are estimates; funding is excluded. OHLC data cannot reveal "
                 "intrabar price order, so the simulator assumes stop first if stop and target "
-                "are both touched. The pullback hypothesis is evaluated on the requested timeframe for "
-                "apples-to-apples comparison; it may differ from the original 15-minute experiment. "
-                "No orders are placed."
+                "are both touched. The Bollinger hypothesis is a predeclared entry-only test: "
+                "20-bar bands at 2 standard deviations, RSI14 <= 30 for long entries or >= 70 "
+                "for shorts, and ADX14 < 20. All candidates retain the common ATR stop/target and "
+                "holding cap. No orders are placed."
             ),
         }
     finally:
