@@ -52,6 +52,13 @@ class CrossAssetBreakoutTests(unittest.TestCase):
         self.assertEqual(signals_a[:cutoff + 1], signals_b[:cutoff + 1])
         self.assertEqual(atr_a[:cutoff + 1], atr_b[:cutoff + 1])
 
+    def test_hourly_fold_width_fits_ninety_day_history(self):
+        total = 2149  # Approximate 90-day hourly candle count.
+        first_test = int(total * 0.50)
+        width = (total - first_test) // 4
+        self.assertGreaterEqual(width, 200)
+        self.assertEqual(width, 268)
+
     def test_no_signal_before_indicator_warmup(self):
         candles = flat_candles(100)
         signals, atr = donchian_breakout_signals(candles)
