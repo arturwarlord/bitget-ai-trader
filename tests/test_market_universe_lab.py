@@ -21,6 +21,20 @@ class MarketUniverseLabTests(unittest.TestCase):
         self.assertIn(("1H", 60), lab.TIMEFRAMES)
         self.assertGreaterEqual(lab.HISTORY_DAYS, 60)
 
+    def test_candle_validation_rejects_gaps(self):
+        step = 15 * 60 * 1000
+        candles = [{"timestamp": 1_800_000_000_000}, {"timestamp": 1_800_000_000_000 + 2 * step}]
+        with self.assertRaisesRegex(RuntimeError, "Gap detected"):
+            lab.validate_candles(candles, step, now_ms=1_800_000_000_000 + 3 * step)
+
+    def test_candle_validation_rejects_stale_or_unclosed_data(self):
+        step = 15 * 60 * 1000
+        latest = 1_800_000_000_000
+        with self.assertRaisesRegex(RuntimeError, "not closed yet"):
+            lab.validate_candles([{"timestamp": latest}], step, now_ms=latest + step - 1)
+        with self.assertRaisesRegex(RuntimeError, "stale"):
+            lab.validate_candles([{"timestamp": latest}], step, now_ms=latest + 5 * step)
+
     def test_rank_key_prefers_profit_factor_then_return(self):
         stronger = {"development": {
             "profit_factor": 1.2,
