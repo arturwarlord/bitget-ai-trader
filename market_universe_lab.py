@@ -66,9 +66,16 @@ def validate_candles(candles, timeframe_ms, now_ms=None):
     timestamps = [int(candle["timestamp"]) for candle in candles]
     if any(current <= previous for previous, current in zip(timestamps, timestamps[1:])):
         raise RuntimeError("Candle timestamps are not strictly increasing.")
-    for previous, current in zip(timestamps, timestamps[1:]):
-        if current - previous != timeframe_ms:
-            raise RuntimeError("Gap detected in candle history; refusing to score this market/timeframe.")
+    gaps = [current - previous for previous, current in zip(timestamps, timestamps[1:])
+            if current - previous != timeframe_ms]
+    missing_intervals = sum(max(0, round((gap / timeframe_ms) - 1)) for gap in gaps)
+    interval_count = max(1, len(timestamps) - 1 + missing_intervals)
+    gap_pct = missing_intervals / interval_count * 100
+    if gap_pct > 2.0:
+        raise RuntimeError(
+            f"Missing candle intervals exceed 2% ({missing_intervals} missing; "
+            f"{gap_pct:.2f}% of timeline). Refusing to score unreliable history."
+        )
     if now_ms is None:
         now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
     latest_closed_at = timestamps[-1] + timeframe_ms
@@ -76,7 +83,12 @@ def validate_candles(candles, timeframe_ms, now_ms=None):
         raise RuntimeError("Latest candle is not closed yet.")
     if now_ms - latest_closed_at > 3 * timeframe_ms:
         raise RuntimeError("Latest closed candle is stale by more than three timeframes.")
-    return True
+    return {
+        "gaps_detected": len(gaps),
+        "missing_intervals": missing_intervals,
+        "missing_intervals_pct": round(gap_pct, 4),
+        "max_gap_timeframes": round(max(gaps, default=timeframe_ms) / timeframe_ms, 2),
+    }
 
 
 def rank_key(item):
@@ -98,7 +110,7 @@ def research_market(symbol, timeframe, minutes):
     bt.MAX_PAGES = 55
 
     candles = bt.get_candles()
-    validate_candles(candles, bt.TIMEFRAME_MS)
+    candle_quality = validate_candles(candles, bt.TIMEFRAME_MS)
     split = int(len(candles) * DEVELOPMENT_FRACTION)
     development = candles[:split]
     holdout_count = len(candles) - split
@@ -155,6 +167,7 @@ def research_market(symbol, timeframe, minutes):
         "symbol": symbol,
         "timeframe": timeframe,
         "candles_total": len(candles),
+        "candle_quality": candle_quality,
         "development_candles": len(development),
         "holdout_candles": holdout_count,
         "development_end_utc": datetime.fromtimestamp(
@@ -262,6 +275,7 @@ def main():
             "A single chronological holdout is not proof of an edge; repeated selection can overfit.",
             "The same fixed parameter grid is tested across markets; candidates need walk-forward and paper validation.",
             "Symbols that are unavailable or have insufficient history are recorded as failures and skipped.",
+            "Small candle gaps are reported; histories with more than 2% missing intervals are rejected.",
         ],
         "trading_enabled": False,
     }
