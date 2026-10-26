@@ -62,7 +62,7 @@ def evaluate_market(symbol, timeframe, minutes):
     for fold_idx in range(FOLDS):
         test_start = first_test + fold_idx * test_width
         test_end = n if fold_idx == FOLDS - 1 else min(n, test_start + test_width)
-        if test_end - test_start < lab.MIN_HOLDOUT_CANDLES:
+        if test_end - test_start < MIN_TEST_WINDOW_CANDLES:
             continue
         training = candles[:test_start]
         selected = []
