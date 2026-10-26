@@ -8,10 +8,13 @@ on:
     paths:
       - "market_universe_lab.py"
       - "tests/test_market_universe_lab.py"
+      - "docs/index.html"
       - ".github/workflows/market-universe-research.yml"
 
 permissions:
-  contents: read
+  contents: write
+  pages: write
+  id-token: write
 
 concurrency:
   group: bitget-multi-asset-research
@@ -21,7 +24,7 @@ jobs:
   research:
     name: Compare USDT futures and timeframes (read-only)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -33,10 +36,34 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_market_universe_lab.py' -v
       - name: Research multiple assets and timeframes
         run: python market_universe_lab.py
-      - name: Upload cross-market report
+      - name: Save latest report for the dashboard
+        if: github.event_name != 'pull_request'
+        run: |
+          mkdir -p docs/data
+          cp market-universe-report.json docs/data/latest-report.json
+          if ! git diff --quiet -- docs/data/latest-report.json; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add docs/data/latest-report.json
+            git commit -m "Update multi-asset research report"
+            git push
+          fi
+      - name: Upload research report artifact
         uses: actions/upload-artifact@v4
         with:
           name: bitget-multi-asset-strategy-report
           path: market-universe-report.json
           if-no-files-found: error
           retention-days: 30
+      - name: Configure GitHub Pages
+        if: github.event_name != 'pull_request'
+        uses: actions/configure-pages@v5
+      - name: Upload dashboard site
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+      - name: Deploy dashboard to GitHub Pages
+        if: github.event_name != 'pull_request'
+        id: deployment
+        uses: actions/deploy-pages@v4
