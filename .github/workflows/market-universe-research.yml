@@ -30,7 +30,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Run unit tests
-        run: python -m unittest tests.test_market_universe_lab -v
+        run: python -m unittest discover -s tests -p 'test_market_universe_lab.py' -v
       - name: Research multiple assets and timeframes
         run: python market_universe_lab.py
       - name: Upload cross-market report
