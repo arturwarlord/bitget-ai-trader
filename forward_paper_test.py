@@ -68,8 +68,25 @@ def trade_stats(trades):
     }
 
 
+def validate_latest_candle_freshness(candles, now_ms=None):
+    if not candles:
+        raise RuntimeError("No candles available; refusing to update forward-paper state.")
+    if now_ms is None:
+        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+    latest_closed_at = candles[-1]["timestamp"] + exp.TIMEFRAME_MS
+    if latest_closed_at > now_ms:
+        raise RuntimeError("Latest candle is not closed yet; refusing to update forward-paper state.")
+    max_staleness_ms = 2 * exp.TIMEFRAME_MS
+    if now_ms - latest_closed_at > max_staleness_ms:
+        raise RuntimeError(
+            "Latest closed candle is stale by more than two timeframes. "
+            "Refusing to update forward-paper state with stale market data."
+        )
+
+
 def main():
     candles = exp.get_candles()
+    validate_latest_candle_freshness(candles)
     signals, atr, trend, slow = exp.build_signals(candles)
     volatility = [((atr[i] / candles[i]["close"]) * 100) if atr[i] is not None and candles[i]["close"] else None for i in range(len(candles))]
     split = int(len(candles) * 0.70)
