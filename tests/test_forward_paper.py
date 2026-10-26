@@ -99,6 +99,22 @@ class ForwardPaperStateTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "stale by more than three timeframes"):
             paper.validate_latest_candle_freshness(self.candles, now_ms=now_ms)
 
+    def test_stale_market_data_does_not_modify_saved_state(self):
+        state = self.base_state(self.candles[0]["timestamp"])
+        self.write_state(state)
+        before = self.state_path.read_text(encoding="utf-8")
+        old_candles = [
+            candle(self.candles[0]["timestamp"] - 10 * paper.exp.TIMEFRAME_MS),
+            candle(self.candles[0]["timestamp"] - 9 * paper.exp.TIMEFRAME_MS),
+            candle(self.candles[0]["timestamp"] - 8 * paper.exp.TIMEFRAME_MS),
+        ]
+
+        with mock.patch.object(paper.exp, "get_candles", return_value=old_candles):
+            with self.assertRaisesRegex(RuntimeError, "stale by more than three timeframes"):
+                self.run_main()
+
+        self.assertEqual(self.state_path.read_text(encoding="utf-8"), before)
+
     def test_unclosed_latest_candle_fails_closed(self):
         latest = self.candles[-1]["timestamp"]
         now_ms = latest + paper.exp.TIMEFRAME_MS - 1
