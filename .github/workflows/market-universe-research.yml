@@ -1,0 +1,42 @@
+name: Bitget Multi-Asset Strategy Research
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "31 5 * * 0"
+  pull_request:
+    paths:
+      - "market_universe_lab.py"
+      - "tests/test_market_universe_lab.py"
+      - ".github/workflows/market-universe-research.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bitget-multi-asset-research
+  cancel-in-progress: false
+
+jobs:
+  research:
+    name: Compare USDT futures and timeframes (read-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run unit tests
+        run: python -m unittest tests.test_market_universe_lab -v
+      - name: Research multiple assets and timeframes
+        run: python market_universe_lab.py
+      - name: Upload cross-market report
+        uses: actions/upload-artifact@v4
+        with:
+          name: bitget-multi-asset-strategy-report
+          path: market-universe-report.json
+          if-no-files-found: error
+          retention-days: 30
