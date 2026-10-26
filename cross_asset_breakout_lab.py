@@ -16,6 +16,7 @@ OUTPUT = Path("cross-asset-breakout-report.json")
 INITIAL_HISTORY_FRACTION = 0.50
 FOLD_COUNT = 4
 MIN_TEST_TRADES = 5
+MIN_TEST_WINDOW_CANDLES = 200  # Allows four test windows in a 90-day 1H history.
 MIN_POSITIVE_FOLDS = 3
 COST_MULTIPLIERS = (1.0, 1.5, 2.0)
 CHANNEL_PERIOD = 20
@@ -104,10 +105,10 @@ def evaluate_market(symbol, timeframe, minutes):
 
     first_test = int(len(candles) * INITIAL_HISTORY_FRACTION)
     width = (len(candles) - first_test) // FOLD_COUNT
-    if width < lab.MIN_HOLDOUT_CANDLES:
+    if width < MIN_TEST_WINDOW_CANDLES:
         raise RuntimeError(
             f"Insufficient history for {FOLD_COUNT} folds: {len(candles)} candles, "
-            f"test width {width}."
+            f"test width {width}; minimum is {MIN_TEST_WINDOW_CANDLES}."
         )
 
     base_cost = 2 * (bt.TAKER_FEE_PER_SIDE + bt.SLIPPAGE_PER_SIDE) * 100
@@ -117,8 +118,8 @@ def evaluate_market(symbol, timeframe, minutes):
         end = len(candles) if fold_index == FOLD_COUNT - 1 else min(
             len(candles), start + width
         )
-        if end - start < lab.MIN_HOLDOUT_CANDLES:
-            raise RuntimeError(f"Fold {fold_index + 1} is too short ({end - start} candles).")
+        if end - start < MIN_TEST_WINDOW_CANDLES:
+            raise RuntimeError(f"Fold {fold_index + 1} is too short ({end - start} candles; minimum is {MIN_TEST_WINDOW_CANDLES}).")
         for strategy in STRATEGIES:
             scenarios = []
             for scenario in cost_scenarios(base_cost):
