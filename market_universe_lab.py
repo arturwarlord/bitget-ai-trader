@@ -54,7 +54,7 @@ def metrics(report):
         "trades": report["trades"],
         "win_rate_pct": report["win_rate_pct"],
         "profit_factor": report["profit_factor"],
-        "compounded_return_pct": report["compounded_return_pct"],
+        "compounded_return_pct": report["compounded_unleveraged_return_pct"],
         "max_drawdown_pct": report["max_drawdown_pct"],
         "average_holding_minutes": report["average_holding_minutes"],
     }
