@@ -1,4 +1,6 @@
 import json
+import os
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -23,7 +25,26 @@ def load_state():
 
 def save_json(path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(value, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    payload = json.dumps(value, indent=2, ensure_ascii=False) + "\n"
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as temp_file:
+            temp_path = Path(temp_file.name)
+            temp_file.write(payload)
+            temp_file.flush()
+            os.fsync(temp_file.fileno())
+        os.replace(temp_path, path)
+    except Exception:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+        raise
 
 
 def close_position(state, price, timestamp, reason):
@@ -68,8 +89,25 @@ def trade_stats(trades):
     }
 
 
+def validate_latest_candle_freshness(candles, now_ms=None):
+    if not candles:
+        raise RuntimeError("No candles available; refusing to update forward-paper state.")
+    if now_ms is None:
+        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+    latest_closed_at = candles[-1]["timestamp"] + exp.TIMEFRAME_MS
+    if latest_closed_at > now_ms:
+        raise RuntimeError("Latest candle is not closed yet; refusing to update forward-paper state.")
+    max_staleness_ms = 3 * exp.TIMEFRAME_MS
+    if now_ms - latest_closed_at > max_staleness_ms:
+        raise RuntimeError(
+            "Latest closed candle is stale by more than three timeframes. "
+            "Refusing to update forward-paper state with stale market data."
+        )
+
+
 def main():
     candles = exp.get_candles()
+    validate_latest_candle_freshness(candles)
     signals, atr, trend, slow = exp.build_signals(candles)
     volatility = [((atr[i] / candles[i]["close"]) * 100) if atr[i] is not None and candles[i]["close"] else None for i in range(len(candles))]
     split = int(len(candles) * 0.70)
@@ -109,7 +147,14 @@ def main():
     last_ts = int(state["last_processed_timestamp"])
     if last_ts not in timestamp_to_index:
         raise RuntimeError("Saved forward-test timestamp is outside downloaded history. Refusing to reset or silently skip data.")
-    start_index = timestamp_to_index[last_ts] + 1
+    last_index = timestamp_to_index[last_ts]
+    for previous, current in zip(candles[last_index:-1], candles[last_index + 1:]):
+        if current["timestamp"] - previous["timestamp"] != exp.TIMEFRAME_MS:
+            raise RuntimeError(
+                "Gap detected in downloaded candles after the last processed timestamp. "
+                "Refusing to simulate across missing market data."
+            )
+    start_index = last_index + 1
     processed = 0
 
     for i in range(start_index, len(candles)):
