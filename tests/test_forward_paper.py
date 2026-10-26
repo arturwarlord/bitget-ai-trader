@@ -94,9 +94,9 @@ class ForwardPaperStateTests(unittest.TestCase):
 
     def test_stale_latest_candle_fails_closed(self):
         latest = self.candles[-1]["timestamp"]
-        now_ms = latest + 3 * paper.exp.TIMEFRAME_MS + 1
+        now_ms = latest + 4 * paper.exp.TIMEFRAME_MS + 1
 
-        with self.assertRaisesRegex(RuntimeError, "stale by more than two timeframes"):
+        with self.assertRaisesRegex(RuntimeError, "stale by more than three timeframes"):
             paper.validate_latest_candle_freshness(self.candles, now_ms=now_ms)
 
     def test_unclosed_latest_candle_fails_closed(self):
