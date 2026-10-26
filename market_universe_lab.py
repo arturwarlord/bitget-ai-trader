@@ -60,6 +60,25 @@ def metrics(report):
     }
 
 
+def validate_candles(candles, timeframe_ms, now_ms=None):
+    if not candles:
+        raise RuntimeError("No candles received.")
+    timestamps = [int(candle["timestamp"]) for candle in candles]
+    if any(current <= previous for previous, current in zip(timestamps, timestamps[1:])):
+        raise RuntimeError("Candle timestamps are not strictly increasing.")
+    for previous, current in zip(timestamps, timestamps[1:]):
+        if current - previous != timeframe_ms:
+            raise RuntimeError("Gap detected in candle history; refusing to score this market/timeframe.")
+    if now_ms is None:
+        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+    latest_closed_at = timestamps[-1] + timeframe_ms
+    if latest_closed_at > now_ms:
+        raise RuntimeError("Latest candle is not closed yet.")
+    if now_ms - latest_closed_at > 3 * timeframe_ms:
+        raise RuntimeError("Latest closed candle is stale by more than three timeframes.")
+    return True
+
+
 def rank_key(item):
     result = item["development"]
     pf = result["profit_factor"]
@@ -75,9 +94,11 @@ def research_market(symbol, timeframe, minutes):
     bt.TIMEFRAME = timeframe
     bt.TIMEFRAME_MS = minutes * 60 * 1000
     bt.HISTORY_DAYS = HISTORY_DAYS
-    bt.MAX_PAGES = 150
+    # 55 pages cover 90 days of 15m candles at 200 rows/page with some headroom.
+    bt.MAX_PAGES = 55
 
     candles = bt.get_candles()
+    validate_candles(candles, bt.TIMEFRAME_MS)
     split = int(len(candles) * DEVELOPMENT_FRACTION)
     development = candles[:split]
     holdout_count = len(candles) - split
