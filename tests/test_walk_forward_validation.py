@@ -26,6 +26,13 @@ class WalkForwardValidationTests(unittest.TestCase):
         }}
         self.assertGreater(wf.score(measured), wf.score(no_pf))
 
+    def test_hourly_four_fold_window_threshold_fits_ninety_day_history(self):
+        # Bitget returns about 2,149 hourly candles for 90 days; four test
+        # windows after a 50% initial training period are about 268 candles.
+        self.assertEqual(wf.MIN_TEST_WINDOW_CANDLES, 200)
+        self.assertGreaterEqual((2149 - int(2149 * wf.INITIAL_TRAIN_FRACTION)) // wf.FOLDS,
+                                wf.MIN_TEST_WINDOW_CANDLES)
+
     def test_compact_metrics_keeps_risk_and_trade_count(self):
         report = {
             "trades": 12, "win_rate_pct": 50.0, "profit_factor": 1.1,
