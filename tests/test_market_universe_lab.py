@@ -21,11 +21,22 @@ class MarketUniverseLabTests(unittest.TestCase):
         self.assertIn(("1H", 60), lab.TIMEFRAMES)
         self.assertGreaterEqual(lab.HISTORY_DAYS, 60)
 
-    def test_candle_validation_rejects_gaps(self):
+    def test_candle_validation_rejects_excessive_gaps(self):
         step = 15 * 60 * 1000
         candles = [{"timestamp": 1_800_000_000_000}, {"timestamp": 1_800_000_000_000 + 2 * step}]
-        with self.assertRaisesRegex(RuntimeError, "Gap detected"):
+        with self.assertRaisesRegex(RuntimeError, "exceed 2%"):
             lab.validate_candles(candles, step, now_ms=1_800_000_000_000 + 3 * step)
+
+    def test_candle_validation_reports_small_gaps(self):
+        step = 15 * 60 * 1000
+        start = 1_800_000_000_000
+        timestamps = [start + i * step for i in range(100)]
+        timestamps.remove(start + 50 * step)
+        candles = [{"timestamp": t} for t in timestamps]
+        quality = lab.validate_candles(candles, step, now_ms=timestamps[-1] + step)
+        self.assertEqual(quality["gaps_detected"], 1)
+        self.assertEqual(quality["missing_intervals"], 1)
+        self.assertGreater(quality["missing_intervals_pct"], 0)
 
     def test_candle_validation_rejects_stale_or_unclosed_data(self):
         step = 15 * 60 * 1000
