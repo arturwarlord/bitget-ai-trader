@@ -9,9 +9,11 @@ on:
       - "market_universe_lab.py"
       - "cost_stress_test.py"
       - "walk_forward_validation.py"
+      - "cross_asset_breakout_lab.py"
       - "tests/test_market_universe_lab.py"
       - "tests/test_cost_stress_test.py"
       - "tests/test_walk_forward_validation.py"
+      - "tests/test_cross_asset_breakout_lab.py"
       - "docs/index.html"
       - ".github/workflows/market-universe-research.yml"
 
@@ -44,6 +46,8 @@ jobs:
         run: python cost_stress_test.py
       - name: Validate with rolling walk-forward windows
         run: python walk_forward_validation.py
+      - name: Validate fixed Donchian breakout across assets and timeframes
+        run: python cross_asset_breakout_lab.py
       - name: Save latest reports for the dashboard
         if: github.event_name != 'pull_request'
         run: |
@@ -77,6 +81,13 @@ jobs:
         with:
           name: bitget-walk-forward-report
           path: walk-forward-report.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload cross-asset breakout walk-forward report
+        uses: actions/upload-artifact@v4
+        with:
+          name: bitget-cross-asset-breakout-report
+          path: cross-asset-breakout-report.json
           if-no-files-found: error
           retention-days: 30
       - name: Configure GitHub Pages
