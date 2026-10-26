@@ -3,6 +3,7 @@ import io
 import json
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest import mock
 
@@ -33,10 +34,13 @@ class ForwardPaperStateTests(unittest.TestCase):
         for patcher in self.patches:
             patcher.start()
             self.addCleanup(patcher.stop)
+        timeframe_ms = paper.exp.TIMEFRAME_MS
+        current_bucket = int(datetime.now(timezone.utc).timestamp() * 1000) // timeframe_ms
+        base_timestamp = (current_bucket - 4) * timeframe_ms
         self.candles = [
-            candle(1_800_000_000_000),
-            candle(1_800_000_900_000),
-            candle(1_800_001_800_000),
+            candle(base_timestamp),
+            candle(base_timestamp + timeframe_ms),
+            candle(base_timestamp + 2 * timeframe_ms),
         ]
         self.signals = [None, None, None]
         self.atr = [1.0, 1.0, 1.0]
@@ -87,6 +91,20 @@ class ForwardPaperStateTests(unittest.TestCase):
             "allowed_trend_regimes": ["weak", "strong"],
             "estimated_round_trip_cost_pct": paper.exp.ROUND_TRIP_COST_PCT,
         }
+
+    def test_stale_latest_candle_fails_closed(self):
+        latest = self.candles[-1]["timestamp"]
+        now_ms = latest + 3 * paper.exp.TIMEFRAME_MS + 1
+
+        with self.assertRaisesRegex(RuntimeError, "stale by more than two timeframes"):
+            paper.validate_latest_candle_freshness(self.candles, now_ms=now_ms)
+
+    def test_unclosed_latest_candle_fails_closed(self):
+        latest = self.candles[-1]["timestamp"]
+        now_ms = latest + paper.exp.TIMEFRAME_MS - 1
+
+        with self.assertRaisesRegex(RuntimeError, "not closed yet"):
+            paper.validate_latest_candle_freshness(self.candles, now_ms=now_ms)
 
     def test_repeated_run_does_not_process_same_candles_twice(self):
         self.write_state(self.base_state(self.candles[0]["timestamp"]))
