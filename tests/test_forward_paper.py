@@ -22,6 +22,7 @@ def candle(timestamp, open_price=100.0, high=102.0, low=98.0, close=100.5):
 class ForwardPaperStateTests(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
         root = Path(self.temp_dir.name)
         self.state_path = root / "data" / "forward_paper_state.json"
         self.report_path = root / "forward-paper-report.json"
@@ -146,6 +147,18 @@ class ForwardPaperStateTests(unittest.TestCase):
 
         saved = self.read_state()
         self.assertEqual(saved["last_processed_timestamp"], 1_700_000_000_000)
+        self.assertEqual(saved["trades"], [])
+
+    def test_missing_candle_after_last_processed_timestamp_fails_closed(self):
+        state = self.base_state(self.candles[0]["timestamp"])
+        self.write_state(state)
+        self.candles[2]["timestamp"] += 900_000
+
+        with self.assertRaisesRegex(RuntimeError, "Gap detected in downloaded candles"):
+            self.run_main()
+
+        saved = self.read_state()
+        self.assertEqual(saved["last_processed_timestamp"], self.candles[0]["timestamp"])
         self.assertEqual(saved["trades"], [])
 
     def test_stop_wins_when_stop_and_target_are_both_touched_in_one_candle(self):
