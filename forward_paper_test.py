@@ -109,7 +109,14 @@ def main():
     last_ts = int(state["last_processed_timestamp"])
     if last_ts not in timestamp_to_index:
         raise RuntimeError("Saved forward-test timestamp is outside downloaded history. Refusing to reset or silently skip data.")
-    start_index = timestamp_to_index[last_ts] + 1
+    last_index = timestamp_to_index[last_ts]
+    for previous, current in zip(candles[last_index:-1], candles[last_index + 1:]):
+        if current["timestamp"] - previous["timestamp"] != exp.TIMEFRAME_MS:
+            raise RuntimeError(
+                "Gap detected in downloaded candles after the last processed timestamp. "
+                "Refusing to simulate across missing market data."
+            )
+    start_index = last_index + 1
     processed = 0
 
     for i in range(start_index, len(candles)):
