@@ -11,6 +11,7 @@ FOLDS = 4
 INITIAL_TRAIN_FRACTION = 0.50
 MIN_TRAIN_TRADES = 12
 MIN_TEST_TRADES = 5
+MIN_TEST_WINDOW_CANDLES = 200  # 90-day 1H history yields about 268 candles per fold
 MIN_POSITIVE_FOLDS = 3
 COST_MULTIPLIERS = (1.0, 1.5, 2.0)
 
@@ -46,8 +47,11 @@ def evaluate_market(symbol, timeframe, minutes):
     n = len(candles)
     first_test = int(n * INITIAL_TRAIN_FRACTION)
     test_width = (n - first_test) // FOLDS
-    if test_width < lab.MIN_HOLDOUT_CANDLES:
-        raise RuntimeError(f"Insufficient history for {FOLDS} folds: {n} candles.")
+    if test_width < MIN_TEST_WINDOW_CANDLES:
+        raise RuntimeError(
+            f"Insufficient history for {FOLDS} folds: {n} candles; "
+            f"each test window needs at least {MIN_TEST_WINDOW_CANDLES} candles."
+        )
 
     baseline = {"ema_fast": 9, "ema_slow": 21, "ema_trend": 200,
                 "stop_atr": 1.5, "target_atr": 2.0}
