@@ -7,6 +7,7 @@ on:
   pull_request:
     paths:
       - "market_universe_lab.py"
+      - "cost_stress_test.py"
       - "tests/test_market_universe_lab.py"
       - "docs/index.html"
       - ".github/workflows/market-universe-research.yml"
@@ -24,7 +25,7 @@ jobs:
   research:
     name: Compare USDT futures and timeframes (read-only)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -36,16 +37,19 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_market_universe_lab.py' -v
       - name: Research multiple assets and timeframes
         run: python market_universe_lab.py
+      - name: Stress test shortlist against higher costs
+        run: python cost_stress_test.py
       - name: Save latest report for the dashboard
         if: github.event_name != 'pull_request'
         run: |
           mkdir -p docs/data
           cp market-universe-report.json docs/data/latest-report.json
-          if ! git diff --quiet -- docs/data/latest-report.json; then
+          cp cost-stress-report.json docs/data/cost-stress-report.json
+          if ! git diff --quiet -- docs/data/latest-report.json docs/data/cost-stress-report.json; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add docs/data/latest-report.json
-            git commit -m "Update multi-asset research report"
+            git add docs/data/latest-report.json docs/data/cost-stress-report.json
+            git commit -m "Update strategy research and cost stress reports"
             git push
           fi
       - name: Upload research report artifact
@@ -53,6 +57,13 @@ jobs:
         with:
           name: bitget-multi-asset-strategy-report
           path: market-universe-report.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload cost stress report artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bitget-cost-stress-report
+          path: cost-stress-report.json
           if-no-files-found: error
           retention-days: 30
       - name: Configure GitHub Pages
