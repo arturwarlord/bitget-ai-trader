@@ -99,6 +99,19 @@ class ForwardPaperStateTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "stale by more than three timeframes"):
             paper.validate_latest_candle_freshness(self.candles, now_ms=now_ms)
 
+    def test_atomic_save_failure_preserves_previous_file(self):
+        self.state_path.parent.mkdir(parents=True, exist_ok=True)
+        original = '{"keep": "previous state"}\n'
+        self.state_path.write_text(original, encoding="utf-8")
+
+        with mock.patch.object(paper.os, "replace", side_effect=OSError("simulated replace failure")):
+            with self.assertRaisesRegex(OSError, "simulated replace failure"):
+                paper.save_json(self.state_path, {"keep": "new state"})
+
+        self.assertEqual(self.state_path.read_text(encoding="utf-8"), original)
+        self.assertEqual(list(self.state_path.parent.glob("*.tmp")), [])
+        self.assertEqual(list(self.state_path.parent.glob(".*.tmp")), [])
+
     def test_stale_market_data_does_not_modify_saved_state(self):
         state = self.base_state(self.candles[0]["timestamp"])
         self.write_state(state)
