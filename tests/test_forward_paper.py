@@ -137,5 +137,68 @@ class ForwardPaperStateTests(unittest.TestCase):
         self.assertEqual(saved["position"]["bars_held"], 1)
 
 
+    def test_missing_saved_timestamp_fails_closed_without_resetting_state(self):
+        state = self.base_state(1_700_000_000_000)
+        self.write_state(state)
+
+        with self.assertRaisesRegex(RuntimeError, "Refusing to reset or silently skip data"):
+            self.run_main()
+
+        saved = self.read_state()
+        self.assertEqual(saved["last_processed_timestamp"], 1_700_000_000_000)
+        self.assertEqual(saved["trades"], [])
+
+    def test_stop_wins_when_stop_and_target_are_both_touched_in_one_candle(self):
+        self.candles[1] = candle(
+            self.candles[1]["timestamp"],
+            open_price=100.0,
+            high=111.0,
+            low=89.0,
+            close=100.0,
+        )
+        self.write_state(self.base_state(self.candles[0]["timestamp"]))
+
+        self.run_main()
+
+        saved = self.read_state()
+        self.assertIsNone(saved["position"])
+        self.assertEqual(len(saved["trades"]), 1)
+        self.assertEqual(saved["trades"][0]["exit_reason"], "stop_loss")
+        self.assertEqual(saved["trades"][0]["exit_price"], 110.0)
+
+    def test_trade_stats_handles_empty_and_no_loss_samples(self):
+        self.assertEqual(
+            paper.trade_stats([]),
+            {
+                "closed_trades": 0,
+                "win_rate_pct": 0.0,
+                "profit_factor": None,
+                "compounded_unleveraged_return_pct": 0.0,
+                "trade_to_trade_max_drawdown_pct": 0.0,
+                "wins": 0,
+                "losses": 0,
+            },
+        )
+        all_wins = paper.trade_stats([
+            {"net_return_pct": 2.0},
+            {"net_return_pct": 1.0},
+        ])
+        self.assertEqual(all_wins["profit_factor"], "infinite")
+        self.assertEqual(all_wins["win_rate_pct"], 100.0)
+        self.assertEqual(all_wins["compounded_unleveraged_return_pct"], 3.02)
+
+    def test_trade_stats_compounds_returns_and_counts_drawdown(self):
+        stats = paper.trade_stats([
+            {"net_return_pct": 10.0},
+            {"net_return_pct": -10.0},
+        ])
+        self.assertEqual(stats["closed_trades"], 2)
+        self.assertEqual(stats["wins"], 1)
+        self.assertEqual(stats["losses"], 1)
+        self.assertEqual(stats["profit_factor"], 1.0)
+        self.assertEqual(stats["compounded_unleveraged_return_pct"], -1.0)
+        self.assertEqual(stats["trade_to_trade_max_drawdown_pct"], 10.0)
+
+
 if __name__ == "__main__":
     unittest.main()
