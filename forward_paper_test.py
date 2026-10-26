@@ -76,10 +76,10 @@ def validate_latest_candle_freshness(candles, now_ms=None):
     latest_closed_at = candles[-1]["timestamp"] + exp.TIMEFRAME_MS
     if latest_closed_at > now_ms:
         raise RuntimeError("Latest candle is not closed yet; refusing to update forward-paper state.")
-    max_staleness_ms = 2 * exp.TIMEFRAME_MS
+    max_staleness_ms = 3 * exp.TIMEFRAME_MS
     if now_ms - latest_closed_at > max_staleness_ms:
         raise RuntimeError(
-            "Latest closed candle is stale by more than two timeframes. "
+            "Latest closed candle is stale by more than three timeframes. "
             "Refusing to update forward-paper state with stale market data."
         )
 
