@@ -1,0 +1,40 @@
+name: Bitget Volatility Squeeze Research
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "volatility_squeeze_lab.py"
+      - "tests/test_volatility_squeeze_lab.py"
+      - ".github/workflows/volatility-squeeze-research.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bitget-volatility-squeeze-research
+  cancel-in-progress: false
+
+jobs:
+  research:
+    name: Validate volatility-compression breakout (read-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run unit tests
+        run: python -m unittest discover -s tests -v
+      - name: Run cross-asset volatility squeeze walk-forward
+        run: python volatility_squeeze_lab.py
+      - name: Upload volatility squeeze report
+        uses: actions/upload-artifact@v4
+        with:
+          name: bitget-volatility-squeeze-report
+          path: volatility-squeeze-report.json
+          if-no-files-found: error
+          retention-days: 30
