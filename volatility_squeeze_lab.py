@@ -1,8 +1,8 @@
-"""Predeclared volatility-compression breakout research across Bitget markets.
+"""Compare fixed EMA, Donchian, Trend Pullback and volatility-squeeze hypotheses.
 
 This module is read-only: it fetches public closed candles and calls the shared
-backtest simulator. It never places orders. The squeeze filter is fixed before
-evaluation and uses only volatility observations available before the signal bar.
+backtest simulator. It never places orders. All entry hypotheses are fixed before
+evaluation and use only information available by the signal candle close.
 """
 import json
 from datetime import datetime, timezone
@@ -29,10 +29,17 @@ COMPRESSION_LOOKBACK = 100
 COMPRESSION_PERCENTILE = 30.0
 STOP_ATR = 1.5
 TARGET_ATR = 2.0
+PULLBACK_EMA = 20
+PULLBACK_TREND_EMA = 50
+PULLBACK_SLOW_EMA = 200
+PULLBACK_RSI_LONG_MAX = 42
+PULLBACK_RSI_SHORT_MIN = 58
+PULLBACK_RSI_LOOKBACK = 4
 
 STRATEGIES = (
     "ema_9_21_baseline",
     "donchian_20_ema200",
+    "trend_pullback",
     "donchian_20_ema200_after_atr_compression",
 )
 
@@ -113,6 +120,65 @@ def volatility_squeeze_signals(
     return signals, atr
 
 
+def trend_pullback_signals(
+    candles,
+    ema_pullback=PULLBACK_EMA,
+    ema_trend=PULLBACK_TREND_EMA,
+    ema_slow=PULLBACK_SLOW_EMA,
+    rsi_long_max=PULLBACK_RSI_LONG_MAX,
+    rsi_short_min=PULLBACK_RSI_SHORT_MIN,
+    rsi_lookback=PULLBACK_RSI_LOOKBACK,
+):
+    """Fixed EMA/RSI pullback-and-reclaim hypothesis, evaluated at bar close.
+
+    Longs require EMA50 > EMA200, close above EMA200, a close crossing back
+    above EMA20, and RSI <= 42 during one of the preceding four completed bars.
+    Shorts use the mirrored EMA regime, EMA20 cross-down and prior RSI >= 58.
+    The shared simulator executes at the next candle open.
+    """
+    closes = [float(c["close"]) for c in candles]
+    pullback = bt.ema_series(closes, ema_pullback)
+    trend = bt.ema_series(closes, ema_trend)
+    slow = bt.ema_series(closes, ema_slow)
+    rsi = bt.rsi_series(closes, bt.RSI_PERIOD)
+    atr = bt.atr_series(candles, ATR_PERIOD)
+    signals = [None] * len(candles)
+
+    for i in range(1, len(candles)):
+        if any(series[i] is None for series in (pullback, trend, slow, rsi, atr)):
+            continue
+        if any(series[i - 1] is None for series in (pullback, rsi)):
+            continue
+        if atr[i] <= 0:
+            continue
+
+        crossed_up = closes[i] > pullback[i] and closes[i - 1] <= pullback[i - 1]
+        crossed_down = closes[i] < pullback[i] and closes[i - 1] >= pullback[i - 1]
+        recent_rsi = [
+            value for value in rsi[max(0, i - rsi_lookback):i]
+            if value is not None
+        ]
+        had_long_pullback = any(value <= rsi_long_max for value in recent_rsi)
+        had_short_pullback = any(value >= rsi_short_min for value in recent_rsi)
+
+        if (
+            trend[i] > slow[i]
+            and closes[i] > slow[i]
+            and crossed_up
+            and had_long_pullback
+        ):
+            signals[i] = 1
+        elif (
+            trend[i] < slow[i]
+            and closes[i] < slow[i]
+            and crossed_down
+            and had_short_pullback
+        ):
+            signals[i] = -1
+
+    return signals, atr
+
+
 def compact(report):
     return {
         "trades": report["trades"],
@@ -145,6 +211,14 @@ def run_candidate(candles, minutes, start, end, cost, strategy):
     if strategy == "donchian_20_ema200":
         with mock.patch.object(
             bt, "make_signals", side_effect=donchian_breakout_signals
+        ):
+            return bt.run_backtest(
+                sample, timeframe_minutes=minutes,
+                evaluation_start_index=start,
+            )
+    if strategy == "trend_pullback":
+        with mock.patch.object(
+            bt, "make_signals", side_effect=trend_pullback_signals
         ):
             return bt.run_backtest(
                 sample, timeframe_minutes=minutes,
@@ -302,8 +376,8 @@ def main():
     report = {
         "checked_at_utc": datetime.now(timezone.utc).isoformat(),
         "purpose": (
-            "Predeclared volatility-compression Donchian breakout vs fixed "
-            "EMA and plain Donchian baselines; chronological next-window-only evaluation."
+            "Predeclared comparison of EMA Trend, Donchian Breakout, Trend Pullback "
+            "and volatility-compression breakout; chronological next-window-only evaluation."
         ),
         "symbols": list(lab.SYMBOLS),
         "timeframes": [tf for tf, _ in lab.TIMEFRAMES],
@@ -323,6 +397,14 @@ def main():
             "maximum_holding_time": "4 hours via shared timeframe-normalized simulator cap",
             "entry_execution": "next candle open after close-confirmed breakout",
             "parameters_optimized_on_test_data": False,
+            "trend_pullback": {
+                "ema_reclaim": PULLBACK_EMA,
+                "ema_trend": PULLBACK_TREND_EMA,
+                "ema_slow": PULLBACK_SLOW_EMA,
+                "prior_rsi_long_max": PULLBACK_RSI_LONG_MAX,
+                "prior_rsi_short_min": PULLBACK_RSI_SHORT_MIN,
+                "prior_rsi_lookback_bars": PULLBACK_RSI_LOOKBACK,
+            },
         },
         "fold_count": FOLD_COUNT,
         "initial_history_fraction": INITIAL_HISTORY_FRACTION,
