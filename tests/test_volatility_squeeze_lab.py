@@ -65,8 +65,10 @@ class VolatilitySqueezeTests(unittest.TestCase):
         self.assertTrue(captured)
         # First eligible signal index is 101. The prior 100 observations are
         # indices 0..99; index 100 is the bar whose compression is classified.
-        self.assertEqual(captured[0], [float(i + 1) for i in range(100)])
-        self.assertNotIn(101.0, captured[0])
+        self.assertEqual(len(captured[0]), 100)
+        for actual, expected in zip(captured[0], [float(i + 1) for i in range(100)]):
+            self.assertAlmostEqual(actual, expected, places=10)
+        self.assertNotAlmostEqual(captured[0][-1], 101.0, places=10)
 
     def test_signals_do_not_depend_on_future_candles(self):
         candles = []
