@@ -1,6 +1,8 @@
 import math
 import unittest
+from unittest import mock
 
+import volatility_squeeze_lab as squeeze_lab
 from volatility_squeeze_lab import (
     linear_quantile,
     trend_pullback_signals,
@@ -40,6 +42,31 @@ class VolatilitySqueezeTests(unittest.TestCase):
         signals, atr = volatility_squeeze_signals(candles)
         self.assertEqual(signals[250], 1)
         self.assertIsNotNone(atr[250])
+
+    def test_compression_quantile_excludes_observation_being_classified(self):
+        candles = flat_candles(240)
+        captured = []
+
+        def capture_quantile(values, percentile):
+            captured.append(list(values))
+            return -1.0  # Prevent entries; only inspect the threshold window.
+
+        atr_values = [float(i + 1) for i in range(len(candles))]
+        with mock.patch.object(
+            squeeze_lab.bt, "ema_series",
+            return_value=[100.0] * len(candles),
+        ), mock.patch.object(
+            squeeze_lab.bt, "atr_series", return_value=atr_values,
+        ), mock.patch.object(
+            squeeze_lab, "linear_quantile", side_effect=capture_quantile,
+        ):
+            squeeze_lab.volatility_squeeze_signals(candles)
+
+        self.assertTrue(captured)
+        # First eligible signal index is 101. The prior 100 observations are
+        # indices 0..99; index 100 is the bar whose compression is classified.
+        self.assertEqual(captured[0], [float(i + 1) for i in range(100)])
+        self.assertNotIn(101.0, captured[0])
 
     def test_signals_do_not_depend_on_future_candles(self):
         candles = []
