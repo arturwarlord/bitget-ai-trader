@@ -92,8 +92,10 @@ def volatility_squeeze_signals(
         if trend[i - 1] is None or atr_pct[i - 1] is None:
             continue
 
-        # This window contains only completed observations through bar i-1.
-        prior_volatility = atr_pct[i - compression_lookback:i]
+        # Classify the previous completed bar against the distribution of
+        # observations strictly before it; do not include the observation being
+        # classified in its own percentile threshold.
+        prior_volatility = atr_pct[i - compression_lookback - 1:i - 1]
         if len(prior_volatility) != compression_lookback or any(
             value is None for value in prior_volatility
         ):
