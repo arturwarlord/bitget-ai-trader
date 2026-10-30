@@ -1,0 +1,44 @@
+name: Bitget DMI ADX Cross-Asset Research
+
+on:
+  pull_request:
+    paths:
+      - "dmi_adx_lab.py"
+      - "tests/test_dmi_adx_lab.py"
+      - ".github/workflows/dmi-adx-research.yml"
+      - "volatility_squeeze_lab.py"
+      - "cross_asset_breakout_lab.py"
+      - "backtest.py"
+      - "market_universe_lab.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bitget-dmi-adx-cross-asset-research
+  cancel-in-progress: false
+
+jobs:
+  research:
+    name: Compare fixed DMI/ADX candidate across assets and timeframes (read-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run complete unit test suite
+        run: python -m unittest discover -s tests -v
+      - name: Run cross-asset DMI/ADX walk-forward comparison
+        run: python dmi_adx_lab.py
+      - name: Upload DMI/ADX research report
+        uses: actions/upload-artifact@v4
+        with:
+          name: bitget-dmi-adx-cross-asset-report
+          path: dmi-adx-report.json
+          if-no-files-found: error
+          retention-days: 30
