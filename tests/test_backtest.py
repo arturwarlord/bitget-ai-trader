@@ -57,6 +57,16 @@ class BacktestUnitTests(unittest.TestCase):
         self.assertAlmostEqual(values[2], 3.0)
         self.assertAlmostEqual(values[3], 2.5)
 
+    def test_parse_candle_row_preserves_base_volume(self):
+        parsed = bt.parse_candle_row([
+            "1800000000000", "100", "102", "99", "101", "123.45", "12400"
+        ])
+        self.assertEqual(parsed["timestamp"], 1800000000000)
+        self.assertAlmostEqual(parsed["volume"], 123.45)
+
+    def test_parse_candle_row_rejects_short_rows(self):
+        self.assertIsNone(bt.parse_candle_row(["1800000000000", "100", "102", "99"]))
+
     def test_aggregation_uses_only_complete_aligned_groups(self):
         candles = [
             candle(0, 10, 11, 9, 10.5),
