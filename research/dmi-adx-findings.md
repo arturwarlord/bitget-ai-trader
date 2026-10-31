@@ -64,3 +64,24 @@ A meaningful next step is a predeclared volume-confirmed breakout test using act
 ## Safety
 
 Read-only public market data only. No exchange orders or trading API keys. `trading_enabled: false`. No strategy is promoted automatically. This report is on the research branch, not main.
+
+
+## Fresh snapshot rerun (2026-10-31 21:28 UTC)
+
+A second completed DMI workflow used a newer closed-candle snapshot (Actions run [41243490964](https://github.com/arturwarlord/bitget-ai-trader/actions/runs/41243490964), artifact [13058810306](https://github.com/arturwarlord/bitget-ai-trader/actions/runs/41243490964/artifacts/13058810306)). It again completed all 20 market/timeframe combinations with no skipped markets and 80 OOS folds per strategy.
+
+Updated mean of market/timeframe fold-average returns (equally averaged across 20 combinations; not portfolio returns):
+
+| Strategy | 0.16% costs | 0.24% costs | 0.32% costs |
+|---|---:|---:|---:|
+| EMA 9/21 | -2.1304% | -3.1874% | -4.2296% |
+| Donchian 20 + EMA200 | -3.5967% | -5.4710% | -7.2978% |
+| Trend Pullback | -1.1346% | -1.8433% | -2.5451% |
+| Donchian after ATR compression | -1.9530% | -2.7434% | -3.5252% |
+| DMI/ADX 14 + ADX>=25 + EMA200 | **-0.4547%** | **-0.7169%** | **-0.9784%** |
+
+DMI/ADX remains the least negative aggregate candidate, but remains negative at every cost level. At 2x costs it produced 23/80 raw positive-return folds, but only 5/80 folds met all per-fold conditions (>=5 trades, positive return and PF>1); it generated 264 trades in total, median fold PF was 0.1834, and median trades per fold remained 3. **0/20 market/timeframe combinations passed the full predeclared gate.**
+
+By timeframe, DMI/ADX mean market-level fold-average return at 2x costs was -1.6961% on 15m and -0.2606% on 1H. The 1H result is still not qualified: sparse trades mean none of its folds met the strict per-fold gate. Do not post-hoc select individual positive symbols from this same test set.
+
+The complete unit-test suite passed again: **50 tests**. The new snapshot does not change the conclusion: DMI/ADX is not qualified for forward paper.
