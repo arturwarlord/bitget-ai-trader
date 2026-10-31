@@ -28,6 +28,24 @@ TAKE_PROFIT_ATR_MULTIPLIER = 2.0
 MAX_HOLD_CANDLES = 48  # 4 hours on a 5-minute chart
 
 
+def parse_candle_row(row):
+    """Parse a Bitget mix candle row, preserving base-coin volume when present."""
+    if len(row) < 5:
+        return None
+    candle = {
+        "timestamp": int(row[0]),
+        "open": float(row[1]),
+        "high": float(row[2]),
+        "low": float(row[3]),
+        "close": float(row[4]),
+    }
+    # Bitget Mix candle rows expose base volume at index 5. Keep it optional
+    # for existing OHLC-only callers; volume strategies fail closed if absent.
+    if len(row) >= 6 and row[5] not in (None, ""):
+        candle["volume"] = float(row[5])
+    return candle
+
+
 def request_candles(end_time_ms=None):
     params = {
         "symbol": SYMBOL,
@@ -51,15 +69,9 @@ def request_candles(end_time_ms=None):
 
     result = []
     for row in payload.get("data", []):
-        if len(row) < 5:
-            continue
-        result.append({
-            "timestamp": int(row[0]),
-            "open": float(row[1]),
-            "high": float(row[2]),
-            "low": float(row[3]),
-            "close": float(row[4]),
-        })
+        parsed = parse_candle_row(row)
+        if parsed is not None:
+            result.append(parsed)
     return result
 
 
