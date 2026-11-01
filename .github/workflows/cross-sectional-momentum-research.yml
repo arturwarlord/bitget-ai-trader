@@ -19,6 +19,7 @@ concurrency:
 
 jobs:
   research:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.ref == 'research/cross-sectional-momentum'
     name: Evaluate fixed cross-sectional momentum portfolio (read-only)
     runs-on: ubuntu-latest
     timeout-minutes: 45
