@@ -1,0 +1,45 @@
+name: Bitget Volume-Confirmed Breakout Cross-Asset Research
+
+on:
+  pull_request:
+    paths:
+      - "volume_breakout_lab.py"
+      - "tests/test_volume_breakout_lab.py"
+      - ".github/workflows/volume-breakout-research.yml"
+      - "backtest.py"
+      - "dmi_adx_lab.py"
+      - "volatility_squeeze_lab.py"
+      - "cross_asset_breakout_lab.py"
+      - "market_universe_lab.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bitget-volume-confirmed-breakout-research
+  cancel-in-progress: false
+
+jobs:
+  research:
+    name: Compare fixed volume-confirmed breakout across assets (read-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run complete unit test suite
+        run: python -m unittest discover -s tests -v
+      - name: Run cross-asset volume-confirmed walk-forward comparison
+        run: python volume_breakout_lab.py
+      - name: Upload volume-breakout research report
+        uses: actions/upload-artifact@v4
+        with:
+          name: bitget-volume-breakout-cross-asset-report
+          path: volume-breakout-report.json
+          if-no-files-found: error
+          retention-days: 30
