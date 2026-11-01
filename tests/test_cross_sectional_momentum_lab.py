@@ -90,7 +90,9 @@ class CrossSectionalMomentumTests(unittest.TestCase):
         changed, changed_alignment = lab.build_daily_observations(
             markets, HOUR_MS, lookback_days=2, hold_days=1
         )
-        self.assertEqual(
+        # The removed timestamp is the prior day's exit and the next day's entry,
+        # so more than one adjacent rebalance date may correctly be skipped.
+        self.assertGreaterEqual(
             changed_alignment["skipped_rebalance_dates"],
             alignment["skipped_rebalance_dates"] + 1,
         )
