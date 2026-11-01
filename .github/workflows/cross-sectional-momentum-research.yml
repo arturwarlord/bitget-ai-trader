@@ -1,0 +1,42 @@
+name: Bitget Cross-Sectional Momentum Research
+
+on:
+  pull_request:
+    paths:
+      - "cross_sectional_momentum_lab.py"
+      - "tests/test_cross_sectional_momentum_lab.py"
+      - ".github/workflows/cross-sectional-momentum-research.yml"
+      - "backtest.py"
+      - "market_universe_lab.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bitget-cross-sectional-momentum-research
+  cancel-in-progress: false
+
+jobs:
+  research:
+    name: Evaluate fixed cross-sectional momentum portfolio (read-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run complete unit test suite
+        run: python -m unittest discover -s tests -v
+      - name: Run cross-sectional portfolio walk-forward
+        run: python cross_sectional_momentum_lab.py
+      - name: Upload cross-sectional momentum report
+        uses: actions/upload-artifact@v4
+        with:
+          name: bitget-cross-sectional-momentum-report
+          path: cross-sectional-momentum-report.json
+          if-no-files-found: error
+          retention-days: 30
