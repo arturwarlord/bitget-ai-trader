@@ -1,6 +1,7 @@
 """Cross-asset, multi-timeframe strategy research. Public data only; never places orders."""
 import itertools
 import json
+import math
 from datetime import datetime, timezone
 
 import backtest as bt
@@ -16,6 +17,70 @@ MIN_DEVELOPMENT_TRADES = 20
 MIN_DEVELOPMENT_CANDLES = 700
 MIN_HOLDOUT_CANDLES = 300
 TOP_CANDIDATES = 5
+
+
+def qualifies_for_forward_paper(
+    folds,
+    fold_count=4,
+    min_trades=5,
+    min_positive_folds=3,
+):
+    """Require both repeatability and positive mean OOS return after 2x costs.
+
+    A prior gate could mark a candidate even when three folds were positive but
+    one large loss made the average OOS return negative. Such a result is not
+    eligible for paper tracking.
+    """
+    if len(folds) != fold_count or fold_count < 1:
+        return False
+
+    returns = []
+    positive_folds = 0
+    for fold in folds:
+        metrics = fold.get("stress_2x")
+        if not isinstance(metrics, dict):
+            return False
+        try:
+            trades = int(metrics["trades"])
+            result = float(metrics["compounded_return_pct"])
+            profit_factor = metrics["profit_factor"]
+        except (KeyError, TypeError, ValueError):
+            return False
+        if not math.isfinite(result) or trades < min_trades:
+            return False
+        returns.append(result)
+        if (
+            result > 0
+            and isinstance(profit_factor, (int, float))
+            and math.isfinite(float(profit_factor))
+            and float(profit_factor) > 1.0
+        ):
+            positive_folds += 1
+
+    mean_return = sum(returns) / len(returns)
+    return positive_folds >= min_positive_folds and mean_return > 0.0
+
+
+def qualifies_for_portfolio_forward_paper(folds, min_positive_folds=3):
+    """Portfolio gate: positive folds and positive mean after 2x costs."""
+    if len(folds) < 4:
+        return False
+    returns = []
+    positive_folds = 0
+    for fold in folds:
+        metrics = fold.get("stress_2x")
+        if not isinstance(metrics, dict):
+            return False
+        try:
+            result = float(metrics["compounded_return_pct"])
+        except (KeyError, TypeError, ValueError):
+            return False
+        if not math.isfinite(result):
+            return False
+        returns.append(result)
+        if fold.get("qualifies_at_2x_cost") is True:
+            positive_folds += 1
+    return positive_folds >= min_positive_folds and sum(returns) / len(returns) > 0.0
 
 FAST_EMAS = (9, 12, 20)
 SLOW_EMAS = (21, 30, 50)
