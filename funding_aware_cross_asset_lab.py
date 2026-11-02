@@ -122,11 +122,10 @@ def evaluate_market(symbol, timeframe, minutes, funding_records):
         qualifying = sum(
             item["qualifies_after_funding_at_2x_cost"] for item in folds
         )
-        enough_trades_each_fold = len(folds) == candidates.baseline_lab.FOLD_COUNT and all(
-            item["stress_2x_cost"]["with_funding"]["trades"]
-            >= candidates.baseline_lab.MIN_TEST_TRADES
+        gate_folds = [
+            {"stress_2x": item["stress_2x_cost"]["with_funding"]}
             for item in folds
-        )
+        ]
         summaries[strategy] = {
             "evaluated_folds": len(folds),
             "qualifying_folds_after_funding_at_2x_cost": qualifying,
@@ -166,9 +165,11 @@ def evaluate_market(symbol, timeframe, minutes, funding_records):
                 item["stress_2x_cost"]["with_funding"]["funding_events"]
                 for item in folds
             ),
-            "candidate_for_forward_paper": (
-                enough_trades_each_fold
-                and qualifying >= candidates.baseline_lab.MIN_POSITIVE_FOLDS
+            "candidate_for_forward_paper": lab.qualifies_for_forward_paper(
+                gate_folds,
+                candidates.baseline_lab.FOLD_COUNT,
+                candidates.baseline_lab.MIN_TEST_TRADES,
+                candidates.baseline_lab.MIN_POSITIVE_FOLDS,
             ),
             "folds": folds,
         }
@@ -329,6 +330,7 @@ def main():
             ),
             "funding_is_not_used_for_signals": True,
             "parameters_optimized_on_test_data": False,
+            "candidate_gate_requires_positive_mean_oos_return": True,
             "trading_enabled": False,
         },
         "warnings": [
