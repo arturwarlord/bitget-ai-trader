@@ -41,6 +41,7 @@ jobs:
       - name: Run funding-aware cross-asset walk-forward
         run: python funding_aware_cross_asset_lab.py
       - name: Upload funding-aware report
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: bitget-funding-aware-cross-asset-report
