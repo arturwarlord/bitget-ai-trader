@@ -33,7 +33,7 @@ GET /api/v2/mix/market/history-fund-rate
 
 Official documentation: https://www.bitget.com/api-doc/classic/contract/market/Get-History-Funding-Rate
 
-The request uses productType=USDT-FUTURES, pageSize=100, and pageNo pagination. The API returns fundingRate and fundingTime for each settled funding event. The research fetches a 60-day window, validates coverage and settlement cadence per symbol/timeframe, and fails closed for incomplete histories.
+The request uses productType=USDT-FUTURES, pageSize=100, and pageNo pagination. The API returns fundingRate and fundingTime for each settled funding event. The research fetches a 60-day window, validates coverage and settlement cadence per symbol/timeframe (maximum observed gap 1.5x the median interval), and fails closed for incomplete histories.
 
 For a position with direction d (+1 long, -1 short), a settled rate r produces a funding cost on position notional of:
 
