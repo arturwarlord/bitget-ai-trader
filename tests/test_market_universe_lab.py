@@ -73,5 +73,61 @@ class MarketUniverseLabTests(unittest.TestCase):
         self.assertGreater(lab.rank_key(measured), lab.rank_key(no_losses_or_no_profit))
 
 
+    @staticmethod
+    def _candidate_fold(result, profit_factor=1.2, trades=5):
+        return {
+            "stress_2x": {
+                "trades": trades,
+                "compounded_return_pct": result,
+                "profit_factor": profit_factor,
+            }
+        }
+
+    def test_paper_gate_rejects_three_positive_folds_when_mean_is_negative(self):
+        folds = [
+            self._candidate_fold(0.10),
+            self._candidate_fold(0.10),
+            self._candidate_fold(0.10),
+            self._candidate_fold(-0.50, profit_factor=0.4),
+        ]
+        self.assertFalse(lab.qualifies_for_forward_paper(folds))
+
+    def test_paper_gate_requires_positive_mean_and_three_qualifying_folds(self):
+        folds = [
+            self._candidate_fold(0.10),
+            self._candidate_fold(0.20),
+            self._candidate_fold(0.10),
+            self._candidate_fold(-0.05, profit_factor=0.8),
+        ]
+        self.assertTrue(lab.qualifies_for_forward_paper(folds))
+
+    def test_paper_gate_rejects_insufficient_trades_or_positive_folds(self):
+        insufficient = [
+            self._candidate_fold(0.10),
+            self._candidate_fold(0.20),
+            self._candidate_fold(0.10),
+            self._candidate_fold(-0.01, trades=4),
+        ]
+        only_two_positive = [
+            self._candidate_fold(0.10),
+            self._candidate_fold(0.20),
+            self._candidate_fold(-0.01, profit_factor=0.8),
+            self._candidate_fold(-0.02, profit_factor=0.7),
+        ]
+        self.assertFalse(lab.qualifies_for_forward_paper(insufficient))
+        self.assertFalse(lab.qualifies_for_forward_paper(only_two_positive))
+
+    def test_portfolio_gate_also_requires_positive_mean_return(self):
+        folds = [
+            {"stress_2x": {"compounded_return_pct": 0.1}, "qualifies_at_2x_cost": True},
+            {"stress_2x": {"compounded_return_pct": 0.1}, "qualifies_at_2x_cost": True},
+            {"stress_2x": {"compounded_return_pct": 0.1}, "qualifies_at_2x_cost": True},
+            {"stress_2x": {"compounded_return_pct": -0.5}, "qualifies_at_2x_cost": False},
+        ]
+        self.assertFalse(lab.qualifies_for_portfolio_forward_paper(folds))
+        folds[-1]["stress_2x"]["compounded_return_pct"] = -0.05
+        self.assertTrue(lab.qualifies_for_portfolio_forward_paper(folds))
+
+
 if __name__ == "__main__":
     unittest.main()

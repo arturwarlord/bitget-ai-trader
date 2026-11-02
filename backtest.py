@@ -205,7 +205,7 @@ def make_signals(candles):
     return signals, atr
 
 
-def run_backtest(candles, timeframe_minutes=5, evaluation_start_index=0):
+def run_backtest(candles, timeframe_minutes=5, evaluation_start_index=0, include_trade_history=False):
     signals, atr_values = make_signals(candles)
     position = None
     pending_side = None  # None means no scheduled action; 0 means scheduled exit.
@@ -247,6 +247,15 @@ def run_backtest(candles, timeframe_minutes=5, evaluation_start_index=0):
             "exit_candle_utc": datetime.fromtimestamp(
                 exit_timestamp / 1000, timezone.utc
             ).isoformat(),
+            "entry_timestamp_ms": int(position["entry_timestamp"]),
+            "exit_timestamp_ms": int(exit_timestamp),
+            # For intrabar and close-based exits, use the exit candle close as a
+            # conservative upper bound for funding settlement. Open exits retain
+            # their exact timestamp.
+            "funding_exit_timestamp_ms": int(
+                exit_timestamp if exit_reason in ("signal_change", "stop_gap", "take_profit_gap")
+                else exit_timestamp + TIMEFRAME_MS
+            ),
             "bars_held": position["bars_held"],
             "gross_return_pct": round(gross_pct, 4),
             "estimated_cost_pct": round(ROUND_TRIP_COST_PCT, 4),
@@ -431,7 +440,7 @@ def run_backtest(candles, timeframe_minutes=5, evaluation_start_index=0):
     buy_hold_gross = (last_close / first_close - 1) * 100
     buy_hold_net = buy_hold_gross - ROUND_TRIP_COST_PCT
 
-    return {
+    report = {
         "checked_at_utc": datetime.now(timezone.utc).isoformat(),
         "exchange": "Bitget",
         "market": "USDT Futures",
@@ -491,6 +500,9 @@ def run_backtest(candles, timeframe_minutes=5, evaluation_start_index=0):
             "preliminary only; results do not predict future performance."
         ),
     }
+    if include_trade_history:
+        report["trade_history"] = trades
+    return report
 
 
 def aggregate_candles(candles, source_minutes=5, target_minutes=15):
