@@ -12,7 +12,7 @@ PRODUCT_TYPE = "USDT-FUTURES"
 PAGE_SIZE = 100
 MAX_PAGES = 12
 PAGE_DELAY_SECONDS = 0.10
-MAX_GAP_MULTIPLE = 2.5
+MAX_GAP_MULTIPLE = 1.5
 
 
 def parse_funding_payload(payload, expected_symbol):
