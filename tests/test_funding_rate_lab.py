@@ -108,6 +108,19 @@ class FundingRateLabTests(unittest.TestCase):
                 sparse, 4 * HOUR_MS, 60 * HOUR_MS
             )
 
+
+    def test_coverage_rejects_a_missing_single_settlement(self):
+        records = [
+            record(8 * HOUR_MS, 0.0001),
+            record(16 * HOUR_MS, 0.0001),
+            record(32 * HOUR_MS, 0.0001),
+            record(40 * HOUR_MS, 0.0001),
+        ]
+        with self.assertRaises(RuntimeError):
+            funding.validate_funding_coverage(
+                records, 4 * HOUR_MS, 44 * HOUR_MS
+            )
+
     def test_positive_funding_is_cost_for_long_and_credit_for_short(self):
         records = [record(2 * HOUR_MS, 0.0001)]
         long_cost, long_events = funding.funding_cost_pct(
