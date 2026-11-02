@@ -48,3 +48,15 @@ The ADAUSDT 1H EMA result therefore must not be treated as a candidate. A correc
 - Funding-adjusted drawdown is a realized trade-sequence metric. The simulator's intrabar mark-to-market drawdown is reported separately and is not fully replayed with funding cash flows at each intrabar mark.
 - Intrabar stop/target exits conservatively include funding through the exit candle close.
 - No API keys or orders are used; trading remains disabled.
+
+## Candidate-gate correction and rerun status
+
+A fresh DMI/ADX comparison exposed that the old gate could flag ADAUSDT 1H EMA 9/21 even though its four-fold mean return at 2x costs was negative. The shared per-symbol and portfolio gates now also require a positive arithmetic mean across all OOS folds after stress costs. The same rule is used by the funding-adjusted evaluator.
+
+The latest full unit-test run passed 94 tests:
+https://github.com/arturwarlord/bitget-ai-trader/actions/runs/41534787208
+
+The corrected funding-aware run is queued:
+https://github.com/arturwarlord/bitget-ai-trader/actions/runs/41534786955
+
+Its report must supersede the preliminary candidate count above. No candidate is approved until that corrected run finishes.
