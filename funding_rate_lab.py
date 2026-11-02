@@ -69,6 +69,8 @@ def fetch_funding_history(
     end_ms,
     page_fetcher=request_funding_page,
     sleep_fn=time.sleep,
+    page_size=PAGE_SIZE,
+    max_pages=MAX_PAGES,
 ):
     """Fetch enough pages to cover [start_ms, end_ms], failing on stalled pagination."""
     if not symbol or int(start_ms) <= 0 or int(end_ms) <= int(start_ms):
@@ -79,8 +81,13 @@ def fetch_funding_history(
     pages_fetched = 0
     reached_start = False
 
-    for page_no in range(1, MAX_PAGES + 1):
-        batch = page_fetcher(symbol, page_no, PAGE_SIZE)
+    if not isinstance(page_size, int) or page_size < 1:
+        raise ValueError("page_size must be positive")
+    if not isinstance(max_pages, int) or max_pages < 1:
+        raise ValueError("max_pages must be positive")
+
+    for page_no in range(1, max_pages + 1):
+        batch = page_fetcher(symbol, page_no, page_size)
         pages_fetched += 1
         if not batch:
             break
@@ -101,7 +108,7 @@ def fetch_funding_history(
         if oldest <= int(start_ms):
             reached_start = True
             break
-        if len(batch) < PAGE_SIZE:
+        if len(batch) < page_size:
             break
         previous_oldest = oldest
         sleep_fn(PAGE_DELAY_SECONDS)
