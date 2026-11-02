@@ -227,7 +227,9 @@ def evaluate_observations(observations, base_round_trip_cost_pct):
             statistics.mean(item["stress_2x"]["compounded_return_pct"] for item in folds), 4
         ),
         "qualifying_folds_at_2x_cost": positive_folds,
-        "candidate_for_forward_paper": positive_folds >= 3,
+        "candidate_for_forward_paper": universe.qualifies_for_portfolio_forward_paper(
+            folds, min_positive_folds=3
+        ),
     }
 
 
