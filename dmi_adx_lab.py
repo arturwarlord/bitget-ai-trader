@@ -235,8 +235,8 @@ def evaluate_market(symbol, timeframe, minutes):
             "mean_fold_return_at_2x_cost_pct": round(sum(
                 fold["stress_2x"]["compounded_return_pct"] for fold in folds
             ) / len(folds), 4) if folds else None,
-            "candidate_for_forward_paper": (
-                every_fold_has_min_trades and positive_folds >= MIN_POSITIVE_FOLDS
+            "candidate_for_forward_paper": lab.qualifies_for_forward_paper(
+                folds, FOLD_COUNT, MIN_TEST_TRADES, MIN_POSITIVE_FOLDS
             ),
             "folds": folds,
         }
