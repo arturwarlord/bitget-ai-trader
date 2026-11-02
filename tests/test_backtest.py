@@ -108,7 +108,7 @@ class BacktestUnitTests(unittest.TestCase):
         self.assertGreaterEqual(report["trades"], 0)
 
 
-    def _run_controlled_trade(self, entry_candle, next_candle=None):
+    def _run_controlled_trade(self, entry_candle, next_candle=None, include_trade_history=False):
         candles = [candle(i * bt.TIMEFRAME_MS, 100, 100.5, 99.5, 100) for i in range(210)]
         candles[203] = entry_candle
         if next_candle is not None:
@@ -117,7 +117,7 @@ class BacktestUnitTests(unittest.TestCase):
         atr_values = [1.0] * len(candles)
         signals[202] = 1  # signal at candle close; enter at candle 203 open
         with mock.patch.object(bt, "make_signals", return_value=(signals, atr_values)):
-            return bt.run_backtest(candles)
+            return bt.run_backtest(candles, include_trade_history=include_trade_history)
 
     def test_entry_uses_next_candle_open_and_charges_round_trip_cost(self):
         entry = candle(203 * bt.TIMEFRAME_MS, 100, 101, 99, 100)
@@ -147,6 +147,29 @@ class BacktestUnitTests(unittest.TestCase):
         self.assertEqual(trade["exit_price"], 97.0)
         self.assertAlmostEqual(trade["gross_return_pct"], -3.0, places=4)
         self.assertAlmostEqual(trade["net_return_pct"], -3.16, places=4)
+
+
+    def test_full_trade_history_is_opt_in_and_contains_funding_bounds(self):
+        entry = candle(203 * bt.TIMEFRAME_MS, 100, 101, 99, 100)
+        default_report = self._run_controlled_trade(entry)
+        self.assertNotIn("trade_history", default_report)
+
+        report = self._run_controlled_trade(entry, include_trade_history=True)
+        self.assertEqual(len(report["trade_history"]), report["trades"])
+        trade = report["trade_history"][0]
+        self.assertEqual(trade["entry_timestamp_ms"], 203 * bt.TIMEFRAME_MS)
+        self.assertEqual(trade["exit_timestamp_ms"], 209 * bt.TIMEFRAME_MS)
+        self.assertEqual(trade["funding_exit_timestamp_ms"], 210 * bt.TIMEFRAME_MS)
+
+    def test_open_gap_exit_keeps_exact_funding_exit_timestamp(self):
+        entry = candle(203 * bt.TIMEFRAME_MS, 100, 101, 99, 100)
+        gap = candle(204 * bt.TIMEFRAME_MS, 97, 99, 96, 98)
+        report = self._run_controlled_trade(
+            entry, gap, include_trade_history=True
+        )
+        trade = report["trade_history"][0]
+        self.assertEqual(trade["exit_reason"], "stop_gap")
+        self.assertEqual(trade["funding_exit_timestamp_ms"], 204 * bt.TIMEFRAME_MS)
 
 
 if __name__ == "__main__":
