@@ -24,8 +24,8 @@ class FundingRateLabTests(unittest.TestCase):
             ],
         }
         result = funding.parse_funding_payload(payload, "BTCUSDT")
-        self.assertEqual([item["funding_timestamp_ms"] for item in result], [2000, 1000])
-        self.assertAlmostEqual(result[1]["funding_rate"], -0.0002)
+        self.assertEqual([item["funding_timestamp_ms"] for item in result], [1000, 2000])
+        self.assertAlmostEqual(result[0]["funding_rate"], -0.0002)
 
     def test_parse_rejects_api_error_and_wrong_symbol(self):
         with self.assertRaises(RuntimeError):
