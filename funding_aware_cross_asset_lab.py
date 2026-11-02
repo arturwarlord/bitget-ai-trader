@@ -2,7 +2,6 @@
 
 import json
 import statistics
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest import mock
@@ -43,7 +42,7 @@ def run_candidate_with_history(candles, minutes, start, end, cost, strategy):
         )
 
 
-def evaluate_market(symbol, timeframe, minutes, funding_records, funding_quality):
+def evaluate_market(symbol, timeframe, minutes, funding_records):
     bt.SYMBOL = symbol
     bt.TIMEFRAME = timeframe
     bt.TIMEFRAME_MS = minutes * 60 * 1000
@@ -220,7 +219,7 @@ def main():
             print(f"Funding-aware walk-forward: {label}", flush=True)
             try:
                 result = evaluate_market(
-                    symbol, timeframe, minutes, funding_cache[symbol], None
+                    symbol, timeframe, minutes, funding_cache[symbol]
                 )
                 results.append(result)
                 print(json.dumps({
