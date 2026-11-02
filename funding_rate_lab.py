@@ -40,7 +40,7 @@ def parse_funding_payload(payload, expected_symbol):
             "funding_timestamp_ms": timestamp,
             "funding_rate": rate,
         })
-    return records
+    return sorted(records, key=lambda item: item["funding_timestamp_ms"])
 
 
 def request_funding_page(symbol, page_no, page_size=PAGE_SIZE):
