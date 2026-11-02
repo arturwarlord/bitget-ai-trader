@@ -58,6 +58,6 @@ A settlement exactly at entry is excluded because the position was not open befo
 
 ## Candidate gate
 
-A market/timeframe/strategy combination is only marked as a paper candidate if, after funding and at 2x estimated fee/slippage, every OOS fold has at least five trades and at least three of four folds have positive compounded return and profit factor above 1. No candidate is promoted automatically.
+A market/timeframe/strategy combination is only marked as a paper candidate if, after funding and at 2x estimated fee/slippage, every OOS fold has at least five trades, at least three of four folds have positive compounded return and profit factor above 1, and the arithmetic mean of all four OOS fold returns is positive. This last condition prevents three small wins plus one large loss from being mislabeled as a candidate. No candidate is promoted automatically.
 
 trading_enabled remains false.
