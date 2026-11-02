@@ -359,8 +359,13 @@ def main():
         "trading_enabled": False,
     }, indent=2, ensure_ascii=False), flush=True)
 
-    if not results:
-        raise RuntimeError("No market/timeframe completed with validated funding history.")
+    expected_markets = len(lab.SYMBOLS) * len(lab.TIMEFRAMES)
+    if len(results) != expected_markets:
+        raise RuntimeError(
+            f"Incomplete funding-aware sample: {len(results)}/{expected_markets} "
+            "market/timeframe combinations completed. The partial report was saved "
+            "and the workflow should retain it as an artifact."
+        )
 
 
 if __name__ == "__main__":
