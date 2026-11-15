@@ -1,6 +1,6 @@
 {
   "created_at_utc": "2026-10-10T16:02:48.428367+00:00",
-  "last_processed_timestamp": 1794739500000,
+  "last_processed_timestamp": 1794763800000,
   "position": null,
   "pending": null,
   "trades": [
@@ -234,9 +234,20 @@
       "exit_reason": "take_profit",
       "bars_held": 5,
       "trend_regime": "strong"
+    },
+    {
+      "side": "SHORT",
+      "entry_timestamp": 1794752100000,
+      "exit_timestamp": 1794753000000,
+      "entry_price": 65270.9,
+      "exit_price": 64619.93762754,
+      "net_return_pct": 0.83732,
+      "exit_reason": "take_profit",
+      "bars_held": 2,
+      "trend_regime": "strong"
     }
   ],
-  "equity": 0.9598361980077319,
+  "equity": 0.9678731371740503,
   "strategy": "SHORT-only EMA20 pullback, EMA50<EMA200, recent RSI>=58, weak/strong trend only",
   "stop_atr_multiplier": 1.5,
   "target_r_multiple": 1.5,
@@ -245,5 +256,5 @@
     "weak"
   ],
   "estimated_round_trip_cost_pct": 0.15999999999999998,
-  "updated_at_utc": "2026-11-15T11:11:21.306758+00:00"
+  "updated_at_utc": "2026-11-15T17:50:06.911120+00:00"
 }
