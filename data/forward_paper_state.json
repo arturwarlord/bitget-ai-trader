@@ -1,7 +1,15 @@
 {
   "created_at_utc": "2026-10-10T16:02:48.428367+00:00",
-  "last_processed_timestamp": 1795038300000,
-  "position": null,
+  "last_processed_timestamp": 1795058100000,
+  "position": {
+    "side": -1,
+    "entry_price": 62654.6,
+    "entry_timestamp": 1795051800000,
+    "stop": 63100.02752616072,
+    "target": 61986.458710758925,
+    "bars_held": 8,
+    "trend_regime": "strong"
+  },
   "pending": null,
   "trades": [
     {
@@ -322,5 +330,5 @@
     "weak"
   ],
   "estimated_round_trip_cost_pct": 0.15999999999999998,
-  "updated_at_utc": "2026-11-18T22:07:56.376044+00:00"
+  "updated_at_utc": "2026-11-19T03:39:03.754683+00:00"
 }
